@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  turbopack: {}, // Silence l'avertissement Turbopack vs Webpack
 };
 
 export default nextConfig;

@@ -39,3 +39,22 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# database
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+dev.db
+
+# prisma
+prisma/migrations/
+*.db-journal
+
+# playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+
+# logs
+*.log
