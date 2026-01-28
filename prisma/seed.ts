@@ -1,6 +1,11 @@
 import { prisma } from "../lib/prisma";
 
 async function main() {
+  // Le modèle Hotel requiert un userId (Supabase UUID).
+  // En seed, on utilise une valeur dédiée via env, sinon un UUID "dummy".
+  const seedUserId =
+    process.env.SEED_USER_ID || "00000000-0000-0000-0000-000000000000";
+
   // Vérifier si un hôtel existe déjà
   let hotel = await prisma.hotel.findFirst();
   
@@ -8,6 +13,7 @@ async function main() {
     // Créer un hôtel par défaut
     hotel = await prisma.hotel.create({
       data: {
+        userId: seedUserId,
         name: "Mon Hôtel",
         location: "Paris, France",
         url: "https://www.booking.com/hotel/example",
