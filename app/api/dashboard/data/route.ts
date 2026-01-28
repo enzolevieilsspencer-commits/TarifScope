@@ -79,6 +79,9 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // Compter les alertes actives = nombre de concurrents surveillés
+    const activeAlerts = competitors.length;
+
     // Calculer les KPIs globaux
     const allPrices = competitorData
       .map((c: { avgPrice: number }) => c.avgPrice)
@@ -162,6 +165,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       kpis: {
         totalCompetitors: competitors.length,
+        activeAlerts,
         avgCompetitorPrice: Math.round(avgCompetitorPrice),
         minCompetitorPrice: Math.round(minCompetitorPrice),
         priceGap: Math.round(priceGap),

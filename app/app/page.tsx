@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -108,7 +108,7 @@ const DashboardTooltip = ({ active, payload, label }: any) => {
 };
 
 type Hotel = {
-  id: number;
+  id: string | number;
   name: string;
   stars: number;
   minOTA: number;
@@ -132,7 +132,7 @@ const ITEMS_PER_PAGE = 5;
 
 export default function Dashboard() {
   const { isOpen } = useSidebar();
-  const [hotels, setHotels] = useState<Hotel[]>(initialHotels);
+  const [hotels, setHotels] = useState<Hotel[]>([]);
   const [priceEvolutionData, setPriceEvolutionData] = useState(initialPriceEvolutionData);
   const [searchQuery, setSearchQuery] = useState("");
   const [periodFilter, setPeriodFilter] = useState("30j");
@@ -140,17 +140,149 @@ export default function Dashboard() {
   const [seasonFilter, setSeasonFilter] = useState("all-season");
   const [currentPage, setCurrentPage] = useState(1);
   const [isScanning, setIsScanning] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // KPIs depuis l'API
+  const [kpis, setKpis] = useState({
+    monitoredHotels: 0,
+    activeAlerts: 0,
+    avgPrice: 0,
+    gap: 0,
+    minPrice: 0,
+  });
 
-  // Handle scan (mock)
-  const handleScan = () => {
+  // Charger les données depuis l'API
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchDashboardData = async () => {
+      try {
+        if (!isMounted) return;
+        setIsLoading(true);
+        
+        const response = await fetch("/api/dashboard/data");
+        if (!isMounted) return;
+        
+        if (response.ok) {
+          const data = await response.json();
+          
+          if (!isMounted) return;
+          
+          // Mettre à jour les KPIs
+          if (data.kpis) {
+            setKpis({
+              monitoredHotels: data.kpis.totalCompetitors || 0,
+              activeAlerts: data.kpis.activeAlerts || 0,
+              avgPrice: data.kpis.avgCompetitorPrice || 0,
+              gap: data.kpis.priceGap || 0,
+              minPrice: data.kpis.minCompetitorPrice || 0,
+            });
+          }
+          
+          // Mettre à jour le tableau des hôtels
+          if (data.hotelsTable) {
+            setHotels(data.hotelsTable.map((h: any) => ({
+              id: h.id,
+              name: h.name,
+              stars: h.stars || 0,
+              minOTA: h.minOTA || 0,
+              booking: h.booking || 0,
+              expedia: h.expedia || 0,
+              setConcurrent: h.setConcurrent || 0,
+              delta: h.delta || 0,
+              lastUpdate: h.lastUpdate || "Jamais",
+              isPositive: h.isPositive !== undefined ? h.isPositive : h.delta >= 0,
+            })));
+          }
+          
+          // Mettre à jour le graphique
+          if (data.chartData && data.chartData.length > 0) {
+            setPriceEvolutionData(data.chartData);
+          }
+        }
+      } catch (error) {
+        if (!isMounted) return;
+        console.error("Erreur lors du chargement des données:", error);
+        toast.error("Erreur lors du chargement des données");
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchDashboardData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Handle scan - connecté à l'API
+  const handleScan = async () => {
     setIsScanning(true);
     toast.info("Lancement du scan en cours...");
     
-    // Simuler un scan
-    setTimeout(() => {
+    try {
+      const response = await fetch("/api/scans/run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Erreur lors du scan");
+      }
+
+      const result = await response.json();
+      
+      toast.success(
+        `Scan terminé ! ${result.snapshotsCreated || 0} snapshot(s) créé(s)`
+      );
+      
+      // Recharger les données après le scan
+      const dashboardResponse = await fetch("/api/dashboard/data");
+      if (dashboardResponse.ok) {
+        const dashboardData = await dashboardResponse.json();
+        if (dashboardData.kpis) {
+          setKpis({
+            monitoredHotels: dashboardData.kpis.totalCompetitors || 0,
+            activeAlerts: dashboardData.kpis.activeAlerts || 0,
+            avgPrice: dashboardData.kpis.avgCompetitorPrice || 0,
+            gap: dashboardData.kpis.priceGap || 0,
+            minPrice: dashboardData.kpis.minCompetitorPrice || 0,
+          });
+        }
+        if (dashboardData.hotelsTable) {
+          setHotels(dashboardData.hotelsTable.map((h: any) => ({
+            id: h.id,
+            name: h.name,
+            stars: h.stars || 0,
+            minOTA: h.minOTA || 0,
+            booking: h.booking || 0,
+            expedia: h.expedia || 0,
+            setConcurrent: h.setConcurrent || 0,
+            delta: h.delta || 0,
+            lastUpdate: h.lastUpdate || "Jamais",
+            isPositive: h.isPositive !== undefined ? h.isPositive : h.delta >= 0,
+          })));
+        }
+        if (dashboardData.chartData && dashboardData.chartData.length > 0) {
+          setPriceEvolutionData(dashboardData.chartData);
+        }
+      }
+    } catch (error) {
+      console.error("Erreur lors du scan:", error);
+      toast.error(
+        error instanceof Error 
+          ? error.message 
+          : "Erreur lors du scan"
+      );
+    } finally {
       setIsScanning(false);
-      toast.success("Scan terminé ! 5 succès, 0 échecs");
-    }, 2000);
+    }
   };
 
   // Filter hotels
@@ -223,11 +355,8 @@ export default function Dashboard() {
     }
   };
 
-  // Stats (mock data)
-  const monitoredHotels = 5;
-  const activeAlerts = 2;
-  const avgPrice = 140;
-  const gap = 8;
+  // Stats depuis l'API (déjà dans le state kpis)
+  const { monitoredHotels, activeAlerts, avgPrice, gap, minPrice } = kpis;
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -437,7 +566,7 @@ export default function Dashboard() {
                 </div>
                 <div className="bg-green-500/20 backdrop-blur-md rounded-lg p-4 border border-green-400/40 shadow-lg">
                   <div className="text-xs text-black mb-1 font-medium">Tarif le plus bas</div>
-                  <div className="text-3xl font-bold text-black">129€</div>
+                  <div className="text-3xl font-bold text-black">{minPrice > 0 ? `${minPrice}€` : 'N/A'}</div>
                 </div>
                 <div className="bg-red-500/20 backdrop-blur-md rounded-lg p-4 border border-red-400/40 shadow-lg">
                   <div className="text-xs text-black mb-1 font-medium">Écart moyen</div>
@@ -450,9 +579,24 @@ export default function Dashboard() {
           {/* Hotels Table */}
           <Card>
             <CardHeader className="pb-4">
-              <CardTitle className="text-xl">Hôtel</CardTitle>
+              <CardTitle className="text-xl">Concurrents surveillés</CardTitle>
+              <CardDescription>
+                {isLoading ? "Chargement..." : `${filteredHotels.length} concurrent${filteredHotels.length > 1 ? 's' : ''} surveillé${filteredHotels.length > 1 ? 's' : ''}`}
+              </CardDescription>
             </CardHeader>
             <CardContent className="p-6">
+              {isLoading ? (
+                <div className="p-6 text-center text-muted-foreground">
+                  Chargement des données...
+                </div>
+              ) : filteredHotels.length === 0 ? (
+                <div className="p-12 text-center">
+                  <Building2 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground">
+                    Aucun concurrent surveillé. Ajoutez des concurrents dans l'onglet "Concurrents".
+                  </p>
+                </div>
+              ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -537,6 +681,8 @@ export default function Dashboard() {
                   ))}
                 </TableBody>
               </Table>
+              )}
+              {!isLoading && filteredHotels.length > 0 && (
               <div className="flex items-center justify-between mt-6">
                 <span className="text-base text-muted-foreground">
                   {(currentPage - 1) * ITEMS_PER_PAGE + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, filteredHotels.length)} sur {filteredHotels.length}
@@ -560,6 +706,7 @@ export default function Dashboard() {
                   </Button>
                 </div>
               </div>
+              )}
             </CardContent>
           </Card>
           </>

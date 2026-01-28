@@ -33,7 +33,7 @@ import { useSidebar } from "@/components/sidebar-context";
 import { toast } from "sonner";
 import { z } from "zod";
 
-// Schema de validation Zod
+// Schema de validation pour l'édition (on ne l'utilise plus pour la création)
 const competitorSchema = z.object({
   name: z.string().min(1, "Le nom est requis").max(100, "Le nom est trop long"),
   location: z.string().min(1, "La localisation est requise"),
@@ -242,7 +242,7 @@ export default function CompetitorsPage() {
     setIsDeleteDialogOpen(true);
   };
 
-  // Validate form
+  // Validate form (utilisé uniquement pour l'édition)
   const validateForm = () => {
     try {
       competitorSchema.parse(formData);
@@ -262,30 +262,95 @@ export default function CompetitorsPage() {
     }
   };
 
-  // Submit create
+  // Submit create (création simplifiée à partir de l'URL uniquement)
   const handleCreateSubmit = async () => {
-    if (!validateForm()) {
-      toast.error("Veuillez corriger les erreurs du formulaire");
+    // On ne demande plus que l'URL côté UI
+    if (!formData.url) {
+      setFormErrors({ url: "L'URL est requise" });
+      toast.error("Veuillez entrer l'URL Booking.com du concurrent");
       return;
     }
 
+    if (!formData.url.includes("booking.com")) {
+      setFormErrors({ url: "Seules les URLs Booking.com sont supportées" });
+      toast.error("Veuillez entrer une URL Booking.com valide");
+      return;
+    }
+
+    setFormErrors({});
+
+    const loadingToast = toast.loading("Ajout du concurrent en cours...", {
+      duration: Infinity,
+    });
+
     try {
-      // Appeler l'API pour créer le concurrent dans la DB
+      // 1) Tenter d'extraire les infos depuis l'URL
+      let payload: {
+        name: string;
+        location: string;
+        url: string;
+        source: string;
+        stars: number;
+        photoUrl?: string | null;
+        isMonitored: boolean;
+        tags?: string;
+      };
+
+      try {
+        const extractResponse = await fetch("/api/competitors/extract-info", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ url: formData.url }),
+        });
+
+        if (extractResponse.ok) {
+          const data = await extractResponse.json();
+          payload = {
+            name: data.name || "Concurrent Booking",
+            location: data.location || "",
+            url: formData.url,
+            source: data.source || "booking.com",
+            stars: data.stars || 4,
+            photoUrl: data.photoUrl || null,
+            isMonitored: true,
+            tags: "",
+          };
+        } else {
+          // Fallback si l'extraction échoue
+          payload = {
+            name: formData.url,
+            location: "",
+            url: formData.url,
+            source: "booking.com",
+            stars: 4,
+            photoUrl: null,
+            isMonitored: true,
+            tags: "",
+          };
+        }
+      } catch {
+        // Fallback si l'extraction explose (erreur réseau, etc.)
+        payload = {
+          name: formData.url,
+          location: "",
+          url: formData.url,
+          source: "booking.com",
+          stars: 4,
+          photoUrl: null,
+          isMonitored: true,
+          tags: "",
+        };
+      }
+
+      // 2) Créer le concurrent dans la DB avec les données extraites / par défaut
       const response = await fetch("/api/competitors", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          name: formData.name,
-          location: formData.location,
-          url: formData.url,
-          source: formData.source,
-          stars: formData.stars,
-          photoUrl: formData.photoUrl,
-          isMonitored: formData.isMonitored,
-          tags: formData.tags,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -295,29 +360,34 @@ export default function CompetitorsPage() {
 
       const newCompetitor = await response.json();
 
-      // Ajouter à la liste locale
-      setCompetitors([...competitors, {
-        id: newCompetitor.id || String(Date.now()),
-        name: newCompetitor.name,
-        location: newCompetitor.location,
-        price: newCompetitor.price || 0,
-        stars: newCompetitor.stars,
-        photoUrl: newCompetitor.photoUrl,
-        isMyHotel: false,
-        isMonitored: newCompetitor.isMonitored,
-        url: newCompetitor.url,
-        source: newCompetitor.source,
-        tags: newCompetitor.tags,
-      }]);
+      // 3) Ajouter à la liste locale
+      setCompetitors([
+        ...competitors,
+        {
+          id: newCompetitor.id || String(Date.now()),
+          name: newCompetitor.name,
+          location: newCompetitor.location,
+          price: newCompetitor.price || 0,
+          stars: newCompetitor.stars,
+          photoUrl: newCompetitor.photoUrl,
+          isMyHotel: false,
+          isMonitored: newCompetitor.isMonitored,
+          url: newCompetitor.url,
+          source: newCompetitor.source,
+          tags: newCompetitor.tags,
+        },
+      ]);
 
       setIsCreateDialogOpen(false);
       resetForm();
+      toast.dismiss(loadingToast);
       toast.success("Concurrent ajouté avec succès");
     } catch (error) {
       console.error("Erreur lors de la création:", error);
+      toast.dismiss(loadingToast);
       toast.error(
-        error instanceof Error 
-          ? error.message 
+        error instanceof Error
+          ? error.message
           : "Erreur lors de la création du concurrent"
       );
     }
@@ -680,124 +750,27 @@ export default function CompetitorsPage() {
           <DialogHeader>
             <DialogTitle>Ajouter un concurrent</DialogTitle>
             <DialogDescription>
-              Ajoutez un nouvel hôtel concurrent à surveiller
+              Ajoutez un nouvel hôtel concurrent à surveiller en collant simplement son URL Booking.com
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
               <Label htmlFor="create-url">URL Booking.com *</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="create-url"
-                  type="url"
-                  value={formData.url}
-                  onChange={(e) => setFormData({ ...formData, url: e.target.value })}
-                  placeholder="https://www.booking.com/hotel/..."
-                  className="flex-1"
-                  disabled={isExtracting}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleExtractInfo}
-                  disabled={isExtracting || !formData.url}
-                >
-                  {isExtracting ? "Extraction..." : "Extraire les infos"}
-                </Button>
-              </div>
+              <Input
+                id="create-url"
+                type="url"
+                value={formData.url}
+                onChange={(e) => setFormData({ ...formData, url: e.target.value })}
+                placeholder="https://www.booking.com/hotel/..."
+                className="flex-1"
+                disabled={isExtracting}
+              />
               {formErrors.url && (
                 <p className="text-sm text-destructive">{formErrors.url}</p>
               )}
               <p className="text-xs text-muted-foreground">
-                Entrez l'URL de l'hôtel sur Booking.com et cliquez sur "Extraire les infos" pour remplir automatiquement les champs
+                Entrez simplement l'URL de l'hôtel sur Booking.com, nous extrairons automatiquement les informations nécessaires.
               </p>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="create-name">Nom de l'hôtel *</Label>
-              <Input
-                id="create-name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Ex: Hôtel Le Marais"
-                disabled={isExtracting}
-              />
-              {formErrors.name && (
-                <p className="text-sm text-destructive">{formErrors.name}</p>
-              )}
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="create-location">Localisation *</Label>
-              <Input
-                id="create-location"
-                value={formData.location}
-                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                placeholder="Ex: Paris"
-                disabled={isExtracting}
-              />
-              {formErrors.location && (
-                <p className="text-sm text-destructive">{formErrors.location}</p>
-              )}
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="create-source">Source *</Label>
-              <Select
-                value={formData.source}
-                onValueChange={(value) => setFormData({ ...formData, source: value })}
-              >
-                <SelectTrigger id="create-source">
-                  <SelectValue placeholder="Sélectionner une source" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="booking.com">Booking.com</SelectItem>
-                  <SelectItem value="Expedia">Expedia</SelectItem>
-                  <SelectItem value="Hotels.com">Hotels.com</SelectItem>
-                  <SelectItem value="Agoda">Agoda</SelectItem>
-                  <SelectItem value="Autre">Autre</SelectItem>
-                </SelectContent>
-              </Select>
-              {formErrors.source && (
-                <p className="text-sm text-destructive">{formErrors.source}</p>
-              )}
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="create-stars">Nombre d'étoiles *</Label>
-              <Select
-                value={formData.stars.toString()}
-                onValueChange={(value) => setFormData({ ...formData, stars: parseInt(value) })}
-              >
-                <SelectTrigger id="create-stars">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">1 étoile</SelectItem>
-                  <SelectItem value="2">2 étoiles</SelectItem>
-                  <SelectItem value="3">3 étoiles</SelectItem>
-                  <SelectItem value="4">4 étoiles</SelectItem>
-                  <SelectItem value="5">5 étoiles</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="create-tags">Tags (optionnel)</Label>
-              <Input
-                id="create-tags"
-                value={formData.tags}
-                onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                placeholder="Ex: centre-ville, luxe"
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="create-monitored">Surveillance active</Label>
-                <p className="text-xs text-muted-foreground">
-                  Activer la surveillance automatique de cet hôtel
-                </p>
-              </div>
-              <Switch
-                id="create-monitored"
-                checked={formData.isMonitored}
-                onCheckedChange={(checked) => setFormData({ ...formData, isMonitored: checked })}
-              />
             </div>
           </div>
           <DialogFooter>

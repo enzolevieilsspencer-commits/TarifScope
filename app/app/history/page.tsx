@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -20,49 +20,7 @@ import { useSidebar } from "@/components/sidebar-context";
 import { toast } from "sonner";
 
 // Mock data
-const initialPriceEvolutionData = [
-  { date: "17 déc.", "Le Grand Hotel": 129, "Hôtel Rivage": 139, "Hôtel Lumière": 145 },
-  { date: "18 déc.", "Le Grand Hotel": 132, "Hôtel Rivage": 141, "Hôtel Lumière": 147 },
-  { date: "19 déc.", "Le Grand Hotel": 130, "Hôtel Rivage": 140, "Hôtel Lumière": 146 },
-  { date: "20 déc.", "Le Grand Hotel": 135, "Hôtel Rivage": 143, "Hôtel Lumière": 149 },
-  { date: "21 déc.", "Le Grand Hotel": 133, "Hôtel Rivage": 142, "Hôtel Lumière": 148 },
-  { date: "22 déc.", "Le Grand Hotel": 137, "Hôtel Rivage": 145, "Hôtel Lumière": 151 },
-  { date: "23 déc.", "Le Grand Hotel": 136, "Hôtel Rivage": 144, "Hôtel Lumière": 150 },
-  { date: "24 déc.", "Le Grand Hotel": 140, "Hôtel Rivage": 147, "Hôtel Lumière": 153 },
-  { date: "25 déc.", "Le Grand Hotel": 138, "Hôtel Rivage": 145, "Hôtel Lumière": 151 },
-  { date: "26 déc.", "Le Grand Hotel": 135, "Hôtel Rivage": 142, "Hôtel Lumière": 148 },
-  { date: "27 déc.", "Le Grand Hotel": 139, "Hôtel Rivage": 146, "Hôtel Lumière": 152 },
-  { date: "28 déc.", "Le Grand Hotel": 141, "Hôtel Rivage": 148, "Hôtel Lumière": 154 },
-  { date: "29 déc.", "Le Grand Hotel": 140, "Hôtel Rivage": 147, "Hôtel Lumière": 153 },
-  { date: "30 déc.", "Le Grand Hotel": 143, "Hôtel Rivage": 150, "Hôtel Lumière": 156 },
-  { date: "31 déc.", "Le Grand Hotel": 142, "Hôtel Rivage": 149, "Hôtel Lumière": 155 },
-  { date: "1 janv.", "Le Grand Hotel": 140, "Hôtel Rivage": 147, "Hôtel Lumière": 153 },
-  { date: "2 janv.", "Le Grand Hotel": 138, "Hôtel Rivage": 145, "Hôtel Lumière": 151 },
-  { date: "3 janv.", "Le Grand Hotel": 141, "Hôtel Rivage": 148, "Hôtel Lumière": 154 },
-  { date: "4 janv.", "Le Grand Hotel": 137, "Hôtel Rivage": 144, "Hôtel Lumière": 150 },
-  { date: "5 janv.", "Le Grand Hotel": 135, "Hôtel Rivage": 142, "Hôtel Lumière": 148 },
-  { date: "6 janv.", "Le Grand Hotel": 139, "Hôtel Rivage": 146, "Hôtel Lumière": 152 },
-  { date: "7 janv.", "Le Grand Hotel": 138, "Hôtel Rivage": 145, "Hôtel Lumière": 151 },
-  { date: "8 janv.", "Le Grand Hotel": 142, "Hôtel Rivage": 149, "Hôtel Lumière": 155 },
-  { date: "9 janv.", "Le Grand Hotel": 141, "Hôtel Rivage": 148, "Hôtel Lumière": 154 },
-  { date: "10 janv.", "Le Grand Hotel": 140, "Hôtel Rivage": 147, "Hôtel Lumière": 153 },
-  { date: "11 janv.", "Le Grand Hotel": 139, "Hôtel Rivage": 146, "Hôtel Lumière": 152 },
-  { date: "12 janv.", "Le Grand Hotel": 143, "Hôtel Rivage": 150, "Hôtel Lumière": 156 },
-  { date: "13 janv.", "Le Grand Hotel": 142, "Hôtel Rivage": 149, "Hôtel Lumière": 155 },
-  { date: "14 janv.", "Le Grand Hotel": 144, "Hôtel Rivage": 151, "Hôtel Lumière": 157 },
-];
-
-const initialHotelStats = [
-  { id: 1, name: "Le Grand Hotel", avgRate: 138, min: 129, max: 144, trend: 11.6, color: "blue", isMyHotel: false },
-  { id: 2, name: "Hôtel Rivage", avgRate: 145, min: 139, max: 151, trend: 8.6, color: "green", isMyHotel: false },
-  { id: 3, name: "Hôtel Lumière", avgRate: 151, min: 145, max: 157, trend: 9.3, color: "orange", isMyHotel: false },
-];
-
-const initialCompetitorMapping = [
-  { id: 1, name: "Le Grand Hotel", color: "#3b82f6", colorName: "blue" },
-  { id: 2, name: "Hôtel Rivage", color: "#22c55e", colorName: "green" },
-  { id: 3, name: "Hôtel Lumière", color: "#f97316", colorName: "orange" },
-];
+// Les données sont maintenant chargées depuis l'API `/api/history`
 
 const colorMap = {
   blue: "bg-blue-500",
@@ -112,9 +70,79 @@ export default function HistoryPage() {
   const { isOpen } = useSidebar();
   const [periodFilter, setPeriodFilter] = useState("30days");
   const [chartType, setChartType] = useState("area");
-  const [allPriceEvolutionData] = useState(initialPriceEvolutionData);
-  const [hotelStats] = useState(initialHotelStats);
-  const [competitorMapping] = useState(initialCompetitorMapping);
+  const [allPriceEvolutionData, setAllPriceEvolutionData] = useState<any[]>([]);
+  const [hotelStats, setHotelStats] = useState<any[]>([]);
+  const [competitorMapping, setCompetitorMapping] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Charger les données depuis l'API /api/history
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchHistoryData = async () => {
+      try {
+        if (!isMounted) return;
+        setIsLoading(true);
+
+        const response = await fetch("/api/history");
+        if (!isMounted) return;
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => null);
+          throw new Error(error?.error || "Erreur lors du chargement de l'historique");
+        }
+
+        const data = await response.json();
+        if (!isMounted) return;
+
+        // Mapping des concurrents (pour les couleurs et les labels)
+        setCompetitorMapping(data.competitorMapping || []);
+
+        // Stats par hôtel
+        setHotelStats(data.hotelStats || []);
+
+        // Transformer les données du graphique :
+        // l'API envoie les prix indexés par ID de concurrent,
+        // on les remappe par nom de concurrent pour coller à l'UI existante.
+        if (data.chartData && data.competitorMapping) {
+          const transformed = data.chartData.map((row: any) => {
+            const transformedRow: any = {
+              date: row.date,
+              dateISO: row.dateISO,
+            };
+
+            data.competitorMapping.forEach((comp: any) => {
+              const value = row[comp.id] ?? 0;
+              transformedRow[comp.name] = value;
+            });
+
+            return transformedRow;
+          });
+
+          setAllPriceEvolutionData(transformed);
+        } else {
+          setAllPriceEvolutionData([]);
+        }
+      } catch (error) {
+        console.error("Erreur lors du chargement de l'historique:", error);
+        if (error instanceof Error) {
+          toast.error(error.message);
+        } else {
+          toast.error("Erreur lors du chargement de l'historique");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchHistoryData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Filter data based on period
   const priceEvolutionData = useMemo(() => {
@@ -224,41 +252,51 @@ export default function HistoryPage() {
               <CardTitle>Évolution des tarifs</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={450}>
-                <AreaChart data={priceEvolutionData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                  <defs>
-                    {competitorMapping.map((comp: any) => (
-                      <linearGradient key={`gradient-${comp.id}`} id={`color-${comp.id}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={comp.color} stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor={comp.color} stopOpacity={0}/>
-                      </linearGradient>
-                    ))}
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis 
-                    dataKey="date" 
-                    stroke="#6b7280" 
-                    tick={{ fontSize: 12, fill: "#6b7280" }}
-                  />
-                  <YAxis 
-                    stroke="#6b7280" 
-                    tick={{ fontSize: 12, fill: "#6b7280" }}
-                  />
-                  <Tooltip content={<CustomTooltip competitorMapping={competitorMapping} />} />
-                  {competitorMapping.map((comp: any) => (
-                    <Area 
-                      key={comp.id}
-                      type="monotone" 
-                      dataKey={comp.name} 
-                      stroke={comp.color} 
-                      strokeWidth={2}
-                      fillOpacity={1}
-                      fill={`url(#color-${comp.id})`}
-                      name={comp.name}
+              {isLoading ? (
+                <div className="p-6 text-center text-muted-foreground">
+                  Chargement de l'historique...
+                </div>
+              ) : priceEvolutionData.length === 0 ? (
+                <div className="p-6 text-center text-muted-foreground">
+                  Aucune donnée historique disponible pour le moment.
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={450}>
+                  <AreaChart data={priceEvolutionData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                    <defs>
+                      {competitorMapping.map((comp: any) => (
+                        <linearGradient key={`gradient-${comp.id}`} id={`color-${comp.id}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={comp.color} stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor={comp.color} stopOpacity={0}/>
+                        </linearGradient>
+                      ))}
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis 
+                      dataKey="date" 
+                      stroke="#6b7280" 
+                      tick={{ fontSize: 12, fill: "#6b7280" }}
                     />
-                  ))}
-                </AreaChart>
-              </ResponsiveContainer>
+                    <YAxis 
+                      stroke="#6b7280" 
+                      tick={{ fontSize: 12, fill: "#6b7280" }}
+                    />
+                    <Tooltip content={<CustomTooltip competitorMapping={competitorMapping} />} />
+                    {competitorMapping.map((comp: any) => (
+                      <Area 
+                        key={comp.id}
+                        type="monotone" 
+                        dataKey={comp.name} 
+                        stroke={comp.color} 
+                        strokeWidth={2}
+                        fillOpacity={1}
+                        fill={`url(#color-${comp.id})`}
+                        name={comp.name}
+                      />
+                    ))}
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
 
@@ -268,50 +306,60 @@ export default function HistoryPage() {
               <CardTitle>Statistiques par hôtel</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>HÔTEL</TableHead>
-                    <TableHead className="text-right">TARIF MOYEN</TableHead>
-                    <TableHead className="text-right">MIN</TableHead>
-                    <TableHead className="text-right">MAX</TableHead>
-                    <TableHead className="text-right">TENDANCE</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {hotelStats.map((hotel) => (
-                    <TableRow key={hotel.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div className={`h-2 w-2 rounded-full ${colorMap[hotel.color as keyof typeof colorMap]}`} />
-                          <span className="font-medium">{hotel.name}</span>
-                          {hotel.isMyHotel && (
-                            <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Mon hôtel</Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">{hotel.avgRate}€</TableCell>
-                      <TableCell className="text-right text-green-600 font-medium">{hotel.min}€</TableCell>
-                      <TableCell className="text-right text-red-600 font-medium">{hotel.max}€</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {hotel.trend > 0 ? (
-                            <>
-                              <span className="text-red-600 font-medium">+{hotel.trend}%</span>
-                              <TrendingUp className="h-4 w-4 text-red-600" />
-                            </>
-                          ) : (
-                            <>
-                              <span className="text-green-600 font-medium">{hotel.trend}%</span>
-                              <TrendingDown className="h-4 w-4 text-green-600" />
-                            </>
-                          )}
-                        </div>
-                      </TableCell>
+              {isLoading ? (
+                <div className="p-4 text-center text-muted-foreground">
+                  Chargement des statistiques...
+                </div>
+              ) : hotelStats.length === 0 ? (
+                <div className="p-4 text-center text-muted-foreground">
+                  Aucune statistique disponible pour le moment.
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>HÔTEL</TableHead>
+                      <TableHead className="text-right">TARIF MOYEN</TableHead>
+                      <TableHead className="text-right">MIN</TableHead>
+                      <TableHead className="text-right">MAX</TableHead>
+                      <TableHead className="text-right">TENDANCE</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {hotelStats.map((hotel) => (
+                      <TableRow key={hotel.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className={`h-2 w-2 rounded-full ${colorMap[hotel.color as keyof typeof colorMap]}`} />
+                            <span className="font-medium">{hotel.name}</span>
+                            {hotel.isMyHotel && (
+                              <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Mon hôtel</Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">{hotel.avgRate}€</TableCell>
+                        <TableCell className="text-right text-green-600 font-medium">{hotel.min}€</TableCell>
+                        <TableCell className="text-right text-red-600 font-medium">{hotel.max}€</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {hotel.trend > 0 ? (
+                              <>
+                                <span className="text-red-600 font-medium">+{hotel.trend}%</span>
+                                <TrendingUp className="h-4 w-4 text-red-600" />
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-green-600 font-medium">{hotel.trend}%</span>
+                                <TrendingDown className="h-4 w-4 text-green-600" />
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
           </>
