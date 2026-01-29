@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateDefaultHotel } from "@/lib/hotel";
 import { createClient } from "@/lib/supabase/server";
+import { scrapeBookingPrice } from "@/lib/scraper/scraper_tarifs";
 
 export const maxDuration = 300; // 5 minutes max
 export const dynamic = "force-dynamic";
@@ -15,19 +16,52 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
-    // Authentification
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    // Mode cron (appel interne avec secret) ou mode utilisateur (via dashboard)
+    const cronSecretHeader = request.headers.get("x-cron-secret");
+    const isCronCall = !!cronSecretHeader && cronSecretHeader === process.env.CRON_SECRET;
 
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: "Non authentifié" },
-        { status: 401 }
-      );
+    let hotel;
+
+    if (isCronCall) {
+      console.log("🕒 Appel de scan en mode CRON");
+      hotel = await prisma.hotel.findFirst({
+        orderBy: { createdAt: "asc" },
+      });
+
+      if (!hotel) {
+        return NextResponse.json(
+          { error: "Aucun hôtel configuré pour le cron" },
+          { status: 400 }
+        );
+      }
+    } else {
+      // Authentification utilisateur classique
+      const supabase = await createClient();
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        return NextResponse.json(
+          { error: "Non authentifié" },
+          { status: 401 }
+        );
+      }
+
+      // Récupérer l'hôtel principal lié à l'utilisateur
+      hotel = await getOrCreateDefaultHotel();
     }
 
-    // Récupérer l'hôtel de l'utilisateur
-    const hotel = await getOrCreateDefaultHotel();
+    // Récupérer la configuration de scan (watchDates: "7,14,30" par défaut)
+    const watchConfig = await prisma.watchConfig.findUnique({
+      where: { hotelId: hotel.id },
+    });
+
+    const dayOffsets =
+      watchConfig?.watchDates
+        ?.split(",")
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => Number.isFinite(n) && n >= 0) || [7, 14, 30];
+
+    console.log("📅 Offsets de jours utilisés pour le scan:", dayOffsets);
 
     // Récupérer les concurrents surveillés
     const competitors = await prisma.competitor.findMany({
@@ -54,47 +88,74 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Pour l'instant, on simule le scan (le vrai scraper sera intégré plus tard)
-    // TODO: Intégrer le scraper de prix réel ici
     let snapshotsCreated = 0;
     const errors: string[] = [];
 
-    // Simuler la création de snapshots pour chaque concurrent
-    // Dans la vraie implémentation, on appellerait le scraper ici
-    for (const competitor of competitors) {
+    // Fonction utilitaire pour traiter un concurrent (toutes les dates)
+    const processCompetitor = async (competitor: {
+      id: string;
+      name: string;
+      url: string | null;
+    }) => {
+      let createdForThisCompetitor = 0;
+      const localErrors: string[] = [];
+
       try {
-        // Dates à scanner (J+7, J+14, J+30)
-        const dates = [7, 14, 30].map((days) => {
+        if (!competitor.url) {
+          console.warn(`⚠️ Concurrent sans URL, ignoré: ${competitor.name}`);
+          return { created: 0, errors: [`Concurrent sans URL: ${competitor.name}`] };
+        }
+
+        // Dates à scanner selon la config (ex: J+7, J+14, J+30)
+        const dates = dayOffsets.map((offset) => {
           const date = new Date();
-          date.setDate(date.getDate() + days);
+          date.setDate(date.getDate() + offset);
           date.setHours(0, 0, 0, 0);
           return date;
         });
 
-        // Pour chaque date, créer un snapshot (simulé pour l'instant)
         for (const date of dates) {
-          // TODO: Remplacer par un vrai appel au scraper
-          // const price = await scraper.scrapePrice(competitor.url, date, ...);
-          
-          // Pour l'instant, on crée un snapshot avec un prix aléatoire (simulation)
-          const mockPrice = Math.floor(Math.random() * 100) + 100; // 100-200€
-          
+          const { price, currency, available } = await scrapeBookingPrice(competitor.url, date);
+          const finalPrice = price > 0 ? price : 0;
+
           await prisma.rateSnapshot.create({
             data: {
               hotelId: hotel.id,
               competitorId: competitor.id,
               runLogId: runLog.id,
               date,
-              price: mockPrice,
-              currency: "EUR",
-              available: true,
+              price: finalPrice,
+              currency,
+              available,
             },
           });
-          snapshotsCreated++;
+          createdForThisCompetitor++;
         }
       } catch (error) {
         console.error(`❌ Erreur pour ${competitor.name}:`, error);
-        errors.push(`Erreur pour ${competitor.name}`);
+        localErrors.push(`Erreur pour ${competitor.name}`);
+      }
+
+      return { created: createdForThisCompetitor, errors: localErrors };
+    };
+
+    // Exécuter les concurrents par batch de 5 en parallèle
+    const CONCURRENCY = 5;
+    for (let i = 0; i < competitors.length; i += CONCURRENCY) {
+      const batch = competitors.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        batch.map((c) =>
+          processCompetitor({
+            id: c.id,
+            name: c.name,
+            url: c.url,
+          })
+        )
+      );
+
+      for (const r of results) {
+        snapshotsCreated += r.created;
+        errors.push(...r.errors);
       }
     }
 

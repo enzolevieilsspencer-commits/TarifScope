@@ -12,7 +12,8 @@ import {
   MapPin,
   Mail,
   Save,
-  Bell
+  Bell,
+  Globe,
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -27,10 +28,10 @@ export default function AccountPage() {
   // Profile form state
   const [profileData, setProfileData] = useState({
     nom: "Enzo Levieils-Spencer",
-    societe: "Ma Société",
     ville: "Paris",
     email: "enzolevieilsspencer@gmail.com",
     hotel: "Hôtel Example",
+    hotelUrl: "",
   });
 
   // Notifications state
@@ -128,14 +129,15 @@ export default function AccountPage() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <label htmlFor="societe" className="text-sm font-medium text-foreground flex items-center gap-2">
-                          <Building2 className="h-4 w-4 text-muted-foreground" />
-                          Société
+                        <label htmlFor="hotel-url" className="text-sm font-medium text-foreground flex items-center gap-2">
+                          <Globe className="h-4 w-4 text-muted-foreground" />
+                          URL de mon hôtel
                         </label>
                         <Input 
-                          id="societe" 
-                          value={profileData.societe}
-                          onChange={(e) => setProfileData({ ...profileData, societe: e.target.value })}
+                          id="hotel-url" 
+                          placeholder="https://www.monsite-hotel.com"
+                          value={profileData.hotelUrl}
+                          onChange={(e) => setProfileData({ ...profileData, hotelUrl: e.target.value })}
                         />
                       </div>
                       <div className="space-y-2">
