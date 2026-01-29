@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
 
     const hotel = await getOrCreateDefaultHotel();
 
+    const hotelWithPhoto = hotel as typeof hotel & { photoUrl?: string | null };
     return NextResponse.json({
       id: hotel.id,
       name: hotel.name,
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
       address: hotel.address,
       url: hotel.url,
       stars: hotel.stars,
-      photoUrl: hotel.photoUrl,
+      photoUrl: hotelWithPhoto.photoUrl ?? null,
     });
   } catch (error) {
     return NextResponse.json(
@@ -86,6 +87,7 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    const hotelWithPhoto = hotel as typeof hotel & { photoUrl?: string | null };
     // Mettre à jour l'hôtel avec les données scrapées + celles fournies
     const updatedHotel = await prisma.hotel.update({
       where: { id: hotel.id },
@@ -95,7 +97,7 @@ export async function PUT(request: NextRequest) {
         address: validated.address || hotel.address,
         url: validated.url || hotel.url,
         stars: validated.stars || scrapedData.stars || hotel.stars,
-        photoUrl: scrapedData.photoUrl || hotel.photoUrl,
+        photoUrl: scrapedData.photoUrl ?? hotelWithPhoto.photoUrl ?? undefined,
       },
     });
 
