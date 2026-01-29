@@ -25,6 +25,7 @@ model Hotel {
   address   String? // Adresse complète
   stars     Int? // Classification (1-5)
   url       String? // URL de l'hôtel (Booking.com, etc.)
+  photoUrl  String? // URL de la photo de l'hôtel
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

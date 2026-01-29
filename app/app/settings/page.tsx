@@ -32,7 +32,7 @@ export default function SettingsPage() {
   const { isOpen } = useSidebar();
   
   const [settings, setSettings] = useState({
-    frequency: "2",
+    frequency: "1",
     monitoredDates: ["7", "14", "30"],
     alertThreshold: "10",
     alertThresholdType: "percent" as "euro" | "percent",
@@ -107,7 +107,7 @@ export default function SettingsPage() {
                 <CardTitle>Fréquence de scan</CardTitle>
               </div>
               <CardDescription>
-                Définissez la fréquence à laquelle les prix de vos concurrents sont scannés
+                Un scan automatique par jour (vers midi, heure de Paris). Vous pouvez aussi lancer un scan manuel depuis le tableau de bord.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -121,16 +121,16 @@ export default function SettingsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="1">1 scan par jour</SelectItem>
-                    <SelectItem value="2">2 scans par jour</SelectItem>
-                    <SelectItem value="4">4 scans par jour</SelectItem>
+                    <SelectItem value="1">1 scan par jour (recommandé)</SelectItem>
+                    <SelectItem value="2">2 scans par jour (plan Pro)</SelectItem>
+                    <SelectItem value="4">4 scans par jour (plan Pro)</SelectItem>
                   </SelectContent>
                 </Select>
                 {errors.frequency && (
                   <p className="text-sm text-destructive">{errors.frequency}</p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  Plus la fréquence est élevée, plus vous serez réactif aux changements de prix
+                  Avec le plan Hobby Vercel, un seul scan automatique par jour est exécuté.
                 </p>
               </div>
             </CardContent>

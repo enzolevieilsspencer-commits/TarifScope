@@ -41,7 +41,7 @@ export async function getOrCreateUserHotel() {
       await prisma.watchConfig.create({
         data: {
           hotelId: hotel.id,
-          frequency: "daily",
+          frequency: "1",
           watchDates: "7,14,30",
           alertThreshold: 10,
         },

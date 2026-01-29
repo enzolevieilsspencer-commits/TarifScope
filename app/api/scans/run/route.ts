@@ -71,14 +71,61 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    if (competitors.length === 0) {
+    // Si l'hôtel a une URL, créer/récupérer un "competitor" pour l'hôtel de l'utilisateur
+    let myHotelCompetitor = null;
+    if (hotel.url && hotel.url.includes("booking.com")) {
+      // Chercher si un competitor existe déjà pour cet hôtel (même URL)
+      myHotelCompetitor = await prisma.competitor.findFirst({
+        where: {
+          hotelId: hotel.id,
+          url: hotel.url,
+        },
+      });
+
+      // Si pas trouvé, créer un competitor pour l'hôtel de l'utilisateur
+      if (!myHotelCompetitor) {
+        myHotelCompetitor = await prisma.competitor.create({
+          data: {
+            hotelId: hotel.id,
+            name: hotel.name,
+            location: hotel.location || "",
+            url: hotel.url,
+            source: "booking.com",
+            stars: hotel.stars,
+            photoUrl: (hotel as { photoUrl?: string | null }).photoUrl || null,
+            isMonitored: true,
+            tags: "mon-hôtel", // Tag spécial pour identifier que c'est l'hôtel de l'utilisateur
+          },
+        });
+        console.log("✅ Competitor créé pour l'hôtel de l'utilisateur");
+      } else {
+        // Mettre à jour les infos si nécessaire
+        await prisma.competitor.update({
+          where: { id: myHotelCompetitor.id },
+          data: {
+            name: hotel.name,
+            location: hotel.location || myHotelCompetitor.location,
+            stars: hotel.stars || myHotelCompetitor.stars,
+            photoUrl: (hotel as { photoUrl?: string | null }).photoUrl || myHotelCompetitor.photoUrl,
+            isMonitored: true,
+          },
+        });
+      }
+    }
+
+    // Liste finale : concurrents + hôtel de l'utilisateur (si disponible)
+    const allCompetitorsToScan = myHotelCompetitor
+      ? [...competitors, myHotelCompetitor]
+      : competitors;
+
+    if (allCompetitorsToScan.length === 0) {
       return NextResponse.json(
-        { error: "Aucun concurrent à surveiller" },
+        { error: "Aucun concurrent à surveiller et aucun URL d'hôtel configuré" },
         { status: 400 }
       );
     }
 
-    console.log(`🏨 ${competitors.length} concurrents à scanner`);
+    console.log(`🏨 ${allCompetitorsToScan.length} concurrents à scanner (dont ${myHotelCompetitor ? "l'hôtel de l'utilisateur" : "0 hôtel utilisateur"})`);
 
     // Créer un RunLog pour tracer le scan
     const runLog = await prisma.runLog.create({
@@ -141,8 +188,8 @@ export async function POST(request: NextRequest) {
 
     // Exécuter les concurrents par batch de 5 en parallèle
     const CONCURRENCY = 5;
-    for (let i = 0; i < competitors.length; i += CONCURRENCY) {
-      const batch = competitors.slice(i, i + CONCURRENCY);
+    for (let i = 0; i < allCompetitorsToScan.length; i += CONCURRENCY) {
+      const batch = allCompetitorsToScan.slice(i, i + CONCURRENCY);
       const results = await Promise.all(
         batch.map((c) =>
           processCompetitor({
@@ -185,7 +232,8 @@ export async function POST(request: NextRequest) {
       status: finalStatus,
       duration,
       snapshotsCreated,
-      competitorsScanned: competitors.length,
+      competitorsScanned: allCompetitorsToScan.length,
+      myHotelScanned: !!myHotelCompetitor,
       errors: errors.length > 0 ? errors : undefined,
     });
 

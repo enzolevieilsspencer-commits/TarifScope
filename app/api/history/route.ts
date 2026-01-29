@@ -6,13 +6,18 @@ export async function GET(request: NextRequest) {
   try {
     const hotel = await getOrCreateDefaultHotel();
 
-    // Récupérer tous les concurrents
+    // Récupérer tous les concurrents (y compris l'hôtel de l'utilisateur s'il a une URL)
     const competitors = await prisma.competitor.findMany({
       where: {
         hotelId: hotel.id,
         isMonitored: true,
       },
     });
+
+    // Identifier l'hôtel de l'utilisateur
+    const myHotelCompetitor = competitors.find(
+      (c) => c.tags === "mon-hôtel" || (hotel.url && c.url === hotel.url)
+    );
 
     // Récupérer tous les snapshots des 90 derniers jours
     const ninetyDaysAgo = new Date();
@@ -82,9 +87,12 @@ export async function GET(request: NextRequest) {
           ? Math.round(((lastPrice - firstPrice) / firstPrice) * 100 * 10) / 10
           : 0;
 
-        // Assigner une couleur basée sur l'index
+        // Identifier si c'est l'hôtel de l'utilisateur
+        const isMyHotel = competitor.id === myHotelCompetitor?.id;
+
+        // Assigner une couleur : bleu pour mon hôtel, sinon basé sur l'index
         const colors = ["blue", "green", "orange", "red", "purple"];
-        const color = colors[competitorIndex % colors.length];
+        const color = isMyHotel ? "blue" : colors[competitorIndex % colors.length];
 
         return {
           id: competitor.id,
@@ -94,13 +102,23 @@ export async function GET(request: NextRequest) {
           max,
           trend,
           color,
-          isMyHotel: false,
+          isMyHotel,
         };
       })
     );
 
     // Créer un mapping des concurrents avec leurs couleurs assignées de manière cohérente
-    const competitorMapping = competitors.map((competitor: { id: string; name: string }, index: number) => {
+    // Trier : mon hôtel en premier
+    const sortedCompetitors = [...competitors].sort((a, b) => {
+      const aIsMyHotel = a.id === myHotelCompetitor?.id;
+      const bIsMyHotel = b.id === myHotelCompetitor?.id;
+      if (aIsMyHotel && !bIsMyHotel) return -1;
+      if (!aIsMyHotel && bIsMyHotel) return 1;
+      return 0;
+    });
+
+    const competitorMapping = sortedCompetitors.map((competitor: { id: string; name: string }, index: number) => {
+      const isMyHotel = competitor.id === myHotelCompetitor?.id;
       const colors = [
         { name: "blue", hex: "#3b82f6" },
         { name: "green", hex: "#22c55e" },
@@ -108,13 +126,15 @@ export async function GET(request: NextRequest) {
         { name: "red", hex: "#ef4444" },
         { name: "purple", hex: "#a855f7" },
       ];
-      const color = colors[index % colors.length];
+      // Mon hôtel toujours en bleu, les autres selon l'index
+      const color = isMyHotel ? colors[0] : colors[(index % (colors.length - 1)) + 1];
       
       return {
         id: competitor.id,
         name: competitor.name,
         color: color.hex,
         colorName: color.name,
+        isMyHotel,
       };
     });
 

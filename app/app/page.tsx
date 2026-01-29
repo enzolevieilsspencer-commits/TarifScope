@@ -118,6 +118,7 @@ type Hotel = {
   delta: number;
   lastUpdate: string;
   isPositive: boolean;
+  isMyHotel?: boolean;
 };
 
 const initialHotels: Hotel[] = [
@@ -181,7 +182,14 @@ export default function Dashboard() {
           
           // Mettre à jour le tableau des hôtels
           if (data.hotelsTable) {
-            setHotels(data.hotelsTable.map((h: any) => ({
+            // Trier : mon hôtel en premier, puis les autres
+            const sorted = [...data.hotelsTable].sort((a: any, b: any) => {
+              if (a.isMyHotel && !b.isMyHotel) return -1;
+              if (!a.isMyHotel && b.isMyHotel) return 1;
+              return 0;
+            });
+            
+            setHotels(sorted.map((h: any) => ({
               id: h.id,
               name: h.name,
               stars: h.stars || 0,
@@ -192,6 +200,7 @@ export default function Dashboard() {
               delta: h.delta || 0,
               lastUpdate: h.lastUpdate || "Jamais",
               isPositive: h.isPositive !== undefined ? h.isPositive : h.delta >= 0,
+              isMyHotel: h.isMyHotel || false,
             })));
           }
           
@@ -256,7 +265,14 @@ export default function Dashboard() {
           });
         }
         if (dashboardData.hotelsTable) {
-          setHotels(dashboardData.hotelsTable.map((h: any) => ({
+          // Trier : mon hôtel en premier, puis les autres
+          const sorted = [...dashboardData.hotelsTable].sort((a: any, b: any) => {
+            if (a.isMyHotel && !b.isMyHotel) return -1;
+            if (!a.isMyHotel && b.isMyHotel) return 1;
+            return 0;
+          });
+          
+          setHotels(sorted.map((h: any) => ({
             id: h.id,
             name: h.name,
             stars: h.stars || 0,
@@ -267,6 +283,7 @@ export default function Dashboard() {
             delta: h.delta || 0,
             lastUpdate: h.lastUpdate || "Jamais",
             isPositive: h.isPositive !== undefined ? h.isPositive : h.delta >= 0,
+            isMyHotel: h.isMyHotel || false,
           })));
         }
         if (dashboardData.chartData && dashboardData.chartData.length > 0) {
@@ -632,6 +649,11 @@ export default function Dashboard() {
                         <div className="flex items-center gap-3">
                           <Building2 className="h-5 w-5 text-muted-foreground" />
                           <span className="font-medium text-base">{hotel.name}</span>
+                          {hotel.isMyHotel && (
+                            <Badge className="bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 text-xs">
+                              Mon hôtel
+                            </Badge>
+                          )}
                           <div className="flex items-center gap-0.5">
                             {Array.from({ length: hotel.stars }).map((_, i) => (
                               <Star key={i} className="h-4 w-4 fill-yellow-500 text-yellow-500" />

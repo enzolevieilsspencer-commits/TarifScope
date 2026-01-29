@@ -46,13 +46,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Récupérer la config de scan pour cet hôtel
-    const watchConfig = await prisma.watchConfig.findUnique({
-      where: { hotelId: hotel.id },
-    });
-
-    const maxDailyScans =
-      (watchConfig?.frequency && parseInt(watchConfig.frequency, 10)) || 2;
+    // 1 scan par jour max (plan Hobby Vercel = 1 cron/jour)
+    const maxDailyScans = 1;
 
     // Calculer début/fin de journée en Europe/Paris
     const startOfDayParis = new Date(parisNow);
@@ -75,57 +70,11 @@ export async function GET(request: NextRequest) {
 
     if (todayScans >= maxDailyScans) {
       console.log(
-        `⏸ Scan ignoré: nombre max de scans/jour atteint (${todayScans}/${maxDailyScans})`
+        `⏸ Scan ignoré: 1 scan/jour déjà effectué aujourd'hui (${todayScans}/${maxDailyScans})`
       );
       return NextResponse.json({
         skipped: true,
         reason: "quota_journalier_atteint",
-      });
-    }
-
-    // Respecter un minimum de 6h entre deux scans
-    const lastScan = await prisma.runLog.findFirst({
-      where: {
-        hotelId: hotel.id,
-        status: {
-          in: ["success", "partial"],
-        },
-      },
-      orderBy: {
-        startedAt: "desc",
-      },
-    });
-
-    if (lastScan) {
-      const diffMs = parisNow.getTime() - lastScan.startedAt.getTime();
-      const sixHoursMs = 6 * 60 * 60 * 1000;
-      if (diffMs < sixHoursMs) {
-        console.log("⏸ Scan ignoré: moins de 6h depuis le dernier scan");
-        return NextResponse.json({
-          skipped: true,
-          reason: "intervalle_minimum_non_respecte",
-        });
-      }
-    }
-
-    // Randomisation : 2 scans/jour répartis sur les créneaux restants
-    const remainingScans = maxDailyScans - todayScans;
-    const lastAllowedHour = 19;
-    const remainingSlots = Math.max(1, lastAllowedHour - hour + 1);
-    const probability = Math.min(1, remainingScans / remainingSlots);
-    const random = Math.random();
-
-    console.log(
-      `🎲 Randomisation: remainingScans=${remainingScans}, remainingSlots=${remainingSlots}, p=${probability.toFixed(
-        2
-      )}, draw=${random.toFixed(2)}`
-    );
-
-    if (random > probability) {
-      console.log("⏸ Scan ignoré: randomisation a décidé de ne pas lancer ce créneau");
-      return NextResponse.json({
-        skipped: true,
-        reason: "randomisation",
       });
     }
 

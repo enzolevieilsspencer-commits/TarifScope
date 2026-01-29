@@ -328,15 +328,17 @@ export default function HistoryPage() {
                   <TableBody>
                     {hotelStats.map((hotel) => (
                       <TableRow key={hotel.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <div className={`h-2 w-2 rounded-full ${colorMap[hotel.color as keyof typeof colorMap]}`} />
-                            <span className="font-medium">{hotel.name}</span>
-                            {hotel.isMyHotel && (
-                              <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Mon hôtel</Badge>
-                            )}
-                          </div>
-                        </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <div className={`h-2 w-2 rounded-full ${colorMap[hotel.color as keyof typeof colorMap]}`} />
+                          <span className="font-medium">{hotel.name}</span>
+                          {(hotel as any).isMyHotel && (
+                            <Badge className="bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 text-xs">
+                              Mon hôtel
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
                         <TableCell className="text-right font-medium">{hotel.avgRate}€</TableCell>
                         <TableCell className="text-right text-green-600 font-medium">{hotel.min}€</TableCell>
                         <TableCell className="text-right text-red-600 font-medium">{hotel.max}€</TableCell>

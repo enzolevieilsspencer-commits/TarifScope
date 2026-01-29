@@ -250,7 +250,7 @@ export default function LandingPage() {
                 </div>
                 <CardTitle className="text-center">Surveillance automatique</CardTitle>
                 <CardDescription className="text-center">
-                  Scans automatiques plusieurs fois par jour pour suivre les prix de vos concurrents en temps réel
+                  Un scan automatique par jour pour suivre les prix de vos concurrents en temps réel
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -336,7 +336,7 @@ export default function LandingPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-muted-foreground">
-                    TarifScope scanne automatiquement les sites de réservation de vos concurrents plusieurs fois par jour.
+                    TarifScope scanne automatiquement les sites de réservation de vos concurrents une fois par jour.
                     Les données sont collectées, normalisées et analysées pour vous fournir des insights actionnables.
                   </p>
                 </CardContent>
