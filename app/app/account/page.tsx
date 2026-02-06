@@ -176,192 +176,176 @@ export default function AccountPage() {
           {/* Content */}
           <div className="flex-1 p-6">
             {activeTab === "profil" && (
-              <div className="space-y-6">
-                {/* Formulaire */}
+              <div className="grid gap-6 lg:grid-cols-2">
+                {/* Carte 1 : Informations du profil (gauche) */}
                 <Card>
                   <CardHeader>
                     <CardTitle>Informations du profil</CardTitle>
                     <CardDescription>Mettez à jour vos informations personnelles</CardDescription>
                   </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-6 lg:grid-cols-2">
-                      {/* Colonne gauche : Informations personnelles */}
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <label htmlFor="nom" className="text-sm font-medium text-foreground flex items-center gap-2">
-                            <User className="h-4 w-4 text-muted-foreground" />
-                            Nom complet
-                          </label>
-                          <Input 
-                            id="nom" 
-                            value={profileData.nom}
-                            onChange={(e) => setProfileData({ ...profileData, nom: e.target.value })}
-                            placeholder="Votre nom"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label htmlFor="email" className="text-sm font-medium text-foreground flex items-center gap-2">
-                            <Mail className="h-4 w-4 text-muted-foreground" />
-                            Email
-                          </label>
-                          <Input 
-                            id="email" 
-                            type="email" 
-                            value={profileData.email}
-                            onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
-                            placeholder="votre@email.com"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label htmlFor="hotel-url" className="text-sm font-medium text-foreground flex items-center gap-2">
-                            <Globe className="h-4 w-4 text-muted-foreground" />
-                            URL de mon hôtel (Booking.com)
-                          </label>
-                          <Input 
-                            id="hotel-url" 
-                            placeholder="https://www.booking.com/hotel/..."
-                            value={profileData.hotelUrl}
-                            onChange={(e) => setProfileData({ ...profileData, hotelUrl: e.target.value })}
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            Entrez l'URL Booking.com de votre hôtel pour que nous puissions extraire automatiquement les informations
-                          </p>
-                        </div>
-                        <div className="flex justify-end mt-6">
-                          <Button 
-                            onClick={async () => {
-                              setIsSaving(true);
-                              try {
-                                const response = await fetch("/api/hotel", {
-                                  method: "PUT",
-                                  headers: {
-                                    "Content-Type": "application/json",
-                                  },
-                                  body: JSON.stringify({
-                                    url: profileData.hotelUrl || undefined,
-                                  }),
-                                });
-
-                                if (!response.ok) {
-                                  const error = await response.json();
-                                  throw new Error(error.error || "Erreur lors de l'enregistrement");
-                                }
-
-                                const updated = await response.json();
-                                setHotelData(updated);
-                                
-                                if (updated.scraped) {
-                                  toast.success("Hôtel enregistré et informations extraites avec succès !");
-                                } else {
-                                  toast.success("Profil enregistré avec succès");
-                                }
-                              } catch (error) {
-                                console.error("Erreur lors de l'enregistrement:", error);
-                                toast.error(
-                                  error instanceof Error 
-                                    ? error.message 
-                                    : "Erreur lors de l'enregistrement"
-                                );
-                              } finally {
-                                setIsSaving(false);
-                              }
-                            }}
-                            disabled={isSaving}
-                          >
-                            <Save className="h-4 w-4 mr-2" />
-                            {isSaving ? "Enregistrement..." : "Enregistrer"}
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Colonne droite : Carte de l'hôtel */}
-                      <div>
-                        {isLoadingHotel ? (
-                          <Card>
-                            <CardContent className="p-6">
-                              <div className="text-center text-muted-foreground">
-                                Chargement des informations de l'hôtel...
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ) : hotelData && (hotelData.name || hotelData.location) ? (
-                          <Card>
-                            <CardHeader>
-                              <CardTitle>Mon hôtel</CardTitle>
-                              <CardDescription>Informations de votre hôtel</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                              {/* Photo de l'hôtel */}
-                              <div className="mb-4">
-                                {hotelData.photoUrl ? (
-                                  <img 
-                                    src={hotelData.photoUrl} 
-                                    alt={hotelData.name || "Hôtel"}
-                                    className="h-64 w-full rounded-lg object-cover"
-                                    onError={(e) => {
-                                      // Fallback si l'image ne charge pas
-                                      e.currentTarget.style.display = 'none';
-                                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
-                                      if (fallback) fallback.classList.remove('hidden');
-                                    }}
-                                  />
-                                ) : null}
-                                <div className={`h-64 w-full rounded-lg bg-muted flex items-center justify-center ${hotelData.photoUrl ? 'hidden' : ''}`}>
-                                  <Building2 className="h-16 w-16 text-muted-foreground" />
-                                </div>
-                              </div>
-
-                              <div className="space-y-2">
-                                <div className="flex items-center gap-2">
-                                  <h3 className="text-lg font-semibold">{hotelData.name || "Nom non disponible"}</h3>
-                                  {hotelData.stars && (
-                                    <div className="flex items-center gap-0.5">
-                                      {Array.from({ length: hotelData.stars }).map((_, i) => (
-                                        <Star key={i} className="h-4 w-4 fill-yellow-500 text-yellow-500" />
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                                {hotelData.location && (
-                                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <MapPin className="h-4 w-4" />
-                                    <span>{hotelData.location}</span>
-                                  </div>
-                                )}
-                                {hotelData.address && (
-                                  <div className="text-sm text-muted-foreground">
-                                    {hotelData.address}
-                                  </div>
-                                )}
-                                {hotelData.url && (
-                                  <div className="flex items-center gap-2">
-                                    <a
-                                      href={hotelData.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-sm text-primary hover:underline flex items-center gap-1"
-                                    >
-                                      <ExternalLink className="h-3 w-3" />
-                                      Voir sur Booking.com
-                                    </a>
-                                  </div>
-                                )}
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ) : (
-                          <Card>
-                            <CardContent className="p-6">
-                              <div className="text-center text-muted-foreground">
-                                <Building2 className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
-                                <p>Aucune information d'hôtel disponible</p>
-                                <p className="text-xs mt-1">Entrez une URL Booking.com et enregistrez pour afficher les informations</p>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        )}
-                      </div>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <label htmlFor="nom" className="text-sm font-medium text-foreground flex items-center gap-2">
+                        <User className="h-4 w-4 text-muted-foreground" />
+                        Nom complet
+                      </label>
+                      <Input 
+                        id="nom" 
+                        value={profileData.nom}
+                        onChange={(e) => setProfileData({ ...profileData, nom: e.target.value })}
+                        placeholder="Votre nom"
+                      />
                     </div>
+                    <div className="space-y-2">
+                      <label htmlFor="email" className="text-sm font-medium text-foreground flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        Email
+                      </label>
+                      <Input 
+                        id="email" 
+                        type="email" 
+                        value={profileData.email}
+                        onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
+                        placeholder="votre@email.com"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="hotel-url" className="text-sm font-medium text-foreground flex items-center gap-2">
+                        <Globe className="h-4 w-4 text-muted-foreground" />
+                        URL de mon hôtel (Booking.com)
+                      </label>
+                      <Input 
+                        id="hotel-url" 
+                        placeholder="https://www.booking.com/hotel/..."
+                        value={profileData.hotelUrl}
+                        onChange={(e) => setProfileData({ ...profileData, hotelUrl: e.target.value })}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Entrez l'URL Booking.com de votre hôtel et enregistrez pour afficher la carte à droite
+                      </p>
+                    </div>
+                    <div className="flex justify-end pt-2">
+                      <Button 
+                        onClick={async () => {
+                          setIsSaving(true);
+                          try {
+                            const response = await fetch("/api/hotel", {
+                              method: "PUT",
+                              headers: {
+                                "Content-Type": "application/json",
+                              },
+                              body: JSON.stringify({
+                                url: profileData.hotelUrl || undefined,
+                              }),
+                            });
+
+                            if (!response.ok) {
+                              const error = await response.json();
+                              throw new Error(error.error || "Erreur lors de l'enregistrement");
+                            }
+
+                            const updated = await response.json();
+                            setHotelData(updated);
+                            
+                            if (updated.scraped) {
+                              toast.success("Hôtel enregistré et informations extraites avec succès !");
+                            } else {
+                              toast.success("Profil enregistré avec succès");
+                            }
+                          } catch (error) {
+                            console.error("Erreur lors de l'enregistrement:", error);
+                            toast.error(
+                              error instanceof Error 
+                                ? error.message 
+                                : "Erreur lors de l'enregistrement"
+                            );
+                          } finally {
+                            setIsSaving(false);
+                          }
+                        }}
+                        disabled={isSaving}
+                      >
+                        <Save className="h-4 w-4 mr-2" />
+                        {isSaving ? "Enregistrement..." : "Enregistrer"}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Carte 2 : Mon hôtel (droite) */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Mon hôtel</CardTitle>
+                    <CardDescription>Informations de votre hôtel (extrait depuis l'URL à gauche)</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {isLoadingHotel ? (
+                      <div className="py-12 text-center text-muted-foreground">
+                        Chargement des informations de l'hôtel...
+                      </div>
+                    ) : hotelData && (hotelData.name || hotelData.location) ? (
+                      <>
+                        <div className="mb-4">
+                          {hotelData.photoUrl ? (
+                            <img 
+                              src={hotelData.photoUrl} 
+                              alt={hotelData.name || "Hôtel"}
+                              className="h-64 w-full rounded-lg object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                if (fallback) fallback.classList.remove('hidden');
+                              }}
+                            />
+                          ) : null}
+                          <div className={`h-64 w-full rounded-lg bg-muted flex items-center justify-center ${hotelData.photoUrl ? 'hidden' : ''}`}>
+                            <Building2 className="h-16 w-16 text-muted-foreground" />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-lg font-semibold">{hotelData.name || "Nom non disponible"}</h3>
+                            {hotelData.stars && (
+                              <div className="flex items-center gap-0.5">
+                                {Array.from({ length: hotelData.stars }).map((_, i) => (
+                                  <Star key={i} className="h-4 w-4 fill-yellow-500 text-yellow-500" />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {hotelData.location && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <MapPin className="h-4 w-4" />
+                              <span>{hotelData.location}</span>
+                            </div>
+                          )}
+                          {hotelData.address && (
+                            <div className="text-sm text-muted-foreground">
+                              {hotelData.address}
+                            </div>
+                          )}
+                          {hotelData.url && (
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={hotelData.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm text-primary hover:underline flex items-center gap-1"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                                Voir sur Booking.com
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="py-12 text-center text-muted-foreground">
+                        <Building2 className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
+                        <p>Aucune information d'hôtel disponible</p>
+                        <p className="text-xs mt-1">Entrez une URL Booking.com dans la carte à gauche et enregistrez</p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>

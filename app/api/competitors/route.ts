@@ -1,62 +1,62 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getOrCreateDefaultHotel } from "@/lib/hotel";
 import { z } from "zod";
+import { randomUUID } from "crypto";
+
+const bookingUrlSchema = z
+  .string()
+  .min(1, "URL requise")
+  .refine(
+    (s) =>
+      s.startsWith("https://www.booking.com/") ||
+      s.startsWith("http://www.booking.com/"),
+    "L'URL doit être une page hôtel Booking.com"
+  );
 
 const competitorSchema = z.object({
   name: z.string().min(1),
-  location: z.string().min(1),
-  url: z.string().url().optional(),
-  source: z.string().min(1),
-  stars: z.number().min(1).max(5),
+  location: z.string().optional(),
+  url: bookingUrlSchema,
+  source: z.string().min(1).optional(),
+  stars: z.number().min(0).max(5).optional(),
   photoUrl: z.string().url().optional().or(z.literal("")),
-  isMonitored: z.boolean(),
+  isMonitored: z.boolean().optional(),
   tags: z.string().optional(),
 });
 
-// GET - Récupérer tous les concurrents
+const MAX_COMPETITORS = 5;
+
+/**
+ * GET - Liste des concurrents depuis la table scraper "hotels" (isClient = false).
+ */
 export async function GET(request: NextRequest) {
   try {
-    const hotel = await getOrCreateDefaultHotel();
-
-    const competitors = await prisma.competitor.findMany({
-      where: {
-        hotelId: hotel.id,
-      },
-      orderBy: {
-        name: "asc",
+    const hotels = await prisma.scraperHotel.findMany({
+      where: { isClient: false },
+      orderBy: { name: "asc" },
+      include: {
+        rateSnapshots: {
+          orderBy: { scrapedAt: "desc" },
+          take: 1,
+        },
       },
     });
 
-    // Récupérer les derniers prix pour chaque concurrent
-    const competitorsWithPrices = await Promise.all(
-      competitors.map(async (competitor: { id: string; name: string; location: string; stars: number | null; photoUrl: string | null; isMonitored: boolean; url: string | null; source: string; tags: string | null }) => {
-        const latestSnapshot = await prisma.rateSnapshot.findFirst({
-          where: {
-            competitorId: competitor.id,
-          },
-          orderBy: {
-            createdAt: "desc",
-          },
-        });
+    const list = hotels.map((h) => ({
+      id: h.id,
+      name: h.name,
+      location: h.location ?? "",
+      price: h.rateSnapshots[0]?.price ?? 0,
+      stars: h.stars ?? 0,
+      photoUrl: h.photoUrl ?? undefined,
+      isMyHotel: false,
+      isMonitored: h.isMonitored,
+      url: h.url,
+      source: "booking.com",
+      tags: undefined,
+    }));
 
-        return {
-          id: competitor.id,
-          name: competitor.name,
-          location: competitor.location,
-          price: latestSnapshot?.price || 0,
-          stars: competitor.stars || 0,
-          photoUrl: competitor.photoUrl || undefined,
-          isMyHotel: false,
-          isMonitored: competitor.isMonitored,
-          url: competitor.url || undefined,
-          source: competitor.source,
-          tags: competitor.tags || undefined,
-        };
-      })
-    );
-
-    return NextResponse.json(competitorsWithPrices);
+    return NextResponse.json(list);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Erreur lors de la récupération" },
@@ -65,40 +65,61 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Créer un concurrent
+/**
+ * POST - Ajouter un concurrent = une ligne dans la table scraper "hotels" (isClient = false).
+ * Le scraper Railway scrapera cet hôtel au prochain run.
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const validated = competitorSchema.parse(body);
 
-    const hotel = await getOrCreateDefaultHotel();
+    const existingByUrl = await prisma.scraperHotel.findUnique({
+      where: { url: validated.url },
+    });
+    if (existingByUrl) {
+      return NextResponse.json(
+        { error: "Un concurrent avec cette URL existe déjà." },
+        { status: 400 }
+      );
+    }
 
-    const competitor = await prisma.competitor.create({
+    const count = await prisma.scraperHotel.count({
+      where: { isClient: false },
+    });
+    if (count >= MAX_COMPETITORS) {
+      return NextResponse.json(
+        { error: `Maximum ${MAX_COMPETITORS} concurrents. Supprimez-en un pour en ajouter un autre.` },
+        { status: 400 }
+      );
+    }
+
+    const id = randomUUID();
+    const hotel = await prisma.scraperHotel.create({
       data: {
+        id,
         name: validated.name,
-        location: validated.location,
-        url: validated.url || "",
-        source: validated.source,
-        stars: validated.stars,
-        photoUrl: validated.photoUrl || null,
-        isMonitored: validated.isMonitored,
-        tags: validated.tags || null,
-        hotelId: hotel.id,
+        location: validated.location ?? null,
+        url: validated.url,
+        stars: validated.stars ?? null,
+        photoUrl: validated.photoUrl && validated.photoUrl !== "" ? validated.photoUrl : null,
+        isClient: false,
+        isMonitored: validated.isMonitored ?? true,
       },
     });
 
     return NextResponse.json({
-      id: competitor.id,
-      name: competitor.name,
-      location: competitor.location,
+      id: hotel.id,
+      name: hotel.name,
+      location: hotel.location ?? "",
       price: 0,
-      stars: competitor.stars || 0,
-      photoUrl: competitor.photoUrl || undefined,
+      stars: hotel.stars ?? 0,
+      photoUrl: hotel.photoUrl ?? undefined,
       isMyHotel: false,
-      isMonitored: competitor.isMonitored,
-      url: competitor.url || undefined,
-      source: competitor.source,
-      tags: competitor.tags || undefined,
+      isMonitored: hotel.isMonitored,
+      url: hotel.url,
+      source: "booking.com",
+      tags: undefined,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

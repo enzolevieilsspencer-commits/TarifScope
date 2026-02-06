@@ -28,7 +28,8 @@ import {
   Download,
   RefreshCw,
   Eye,
-  ExternalLink
+  ExternalLink,
+  Calendar,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Sidebar } from "@/components/sidebar";
@@ -95,7 +96,9 @@ const DashboardTooltip = ({ active, payload, label }: any) => {
                   style={{ backgroundColor: hotelInfo.color }}
                 />
                 <span className="text-sm text-gray-700">
-                  {hotelInfo.name}: <span className="font-bold text-gray-900">{entry.value}€</span>
+                  {hotelInfo.name}: <span className="font-bold text-gray-900">
+                    {entry.value != null && entry.value !== "" ? `${Number(entry.value)} €` : "—"}
+                  </span>
                 </span>
               </div>
             );
@@ -134,7 +137,7 @@ const ITEMS_PER_PAGE = 5;
 export default function Dashboard() {
   const { isOpen } = useSidebar();
   const [hotels, setHotels] = useState<Hotel[]>([]);
-  const [priceEvolutionData, setPriceEvolutionData] = useState(initialPriceEvolutionData);
+  const [priceEvolutionData, setPriceEvolutionData] = useState<typeof initialPriceEvolutionData>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [periodFilter, setPeriodFilter] = useState("30j");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -142,7 +145,18 @@ export default function Dashboard() {
   const [currentPage, setCurrentPage] = useState(1);
   const [isScanning, setIsScanning] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  
+
+  // Carte calendrier : date choisie + prix par concurrent pour cette date
+  const [cardSelectedDate, setCardSelectedDate] = useState(() =>
+    new Date().toISOString().split("T")[0]
+  );
+  const [cardPricesByDate, setCardPricesByDate] = useState<{
+    dateLabel: string;
+    competitors: { name: string; price: number; isMyHotel: boolean }[];
+  } | null>(null);
+  const [loadingCardDate, setLoadingCardDate] = useState(false);
+  const [availableDatesForCard, setAvailableDatesForCard] = useState<string[]>([]);
+
   // KPIs depuis l'API
   const [kpis, setKpis] = useState({
     monitoredHotels: 0,
@@ -151,6 +165,47 @@ export default function Dashboard() {
     gap: 0,
     minPrice: 0,
   });
+
+  // Charger la liste des dates qui ont des prix (J+7, J+14, J+30 des scans)
+  useEffect(() => {
+    let isMounted = true;
+    fetch("/api/dashboard/dates")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!isMounted || !data.dates?.length) return;
+        setAvailableDatesForCard(data.dates);
+        // Si la date actuellement choisie n'a pas de données, présélectionner la dernière date disponible
+        setCardSelectedDate((prev) => {
+          if (data.dates.includes(prev)) return prev;
+          return data.dates[data.dates.length - 1];
+        });
+      });
+    return () => { isMounted = false; };
+  }, []);
+
+  // Charger les prix par concurrent pour la date choisie (carte calendrier)
+  useEffect(() => {
+    let isMounted = true;
+    setLoadingCardDate(true);
+    setCardPricesByDate(null);
+    fetch(`/api/dashboard/by-date?date=${cardSelectedDate}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!isMounted) return;
+        if (data.error) {
+          setCardPricesByDate(null);
+          return;
+        }
+        setCardPricesByDate({
+          dateLabel: data.dateLabel || cardSelectedDate,
+          competitors: data.competitors || [],
+        });
+      })
+      .finally(() => {
+        if (isMounted) setLoadingCardDate(false);
+      });
+    return () => { isMounted = false; };
+  }, [cardSelectedDate]);
 
   // Charger les données depuis l'API
   useEffect(() => {
@@ -204,9 +259,15 @@ export default function Dashboard() {
             })));
           }
           
-          // Mettre à jour le graphique
+          // Mettre à jour le graphique avec les prix enregistrés (tri par date pour affichage correct)
           if (data.chartData && data.chartData.length > 0) {
-            setPriceEvolutionData(data.chartData);
+            const sorted = [...data.chartData].sort(
+              (a: { dateISO?: string }, b: { dateISO?: string }) =>
+                (a.dateISO || "").localeCompare(b.dateISO || "")
+            );
+            setPriceEvolutionData(sorted);
+          } else {
+            setPriceEvolutionData([]);
           }
         }
       } catch (error) {
@@ -287,7 +348,20 @@ export default function Dashboard() {
           })));
         }
         if (dashboardData.chartData && dashboardData.chartData.length > 0) {
-          setPriceEvolutionData(dashboardData.chartData);
+          const sorted = [...dashboardData.chartData].sort(
+            (a: { dateISO?: string }, b: { dateISO?: string }) =>
+              (a.dateISO || "").localeCompare(b.dateISO || "")
+          );
+          setPriceEvolutionData(sorted);
+        }
+        // Rafraîchir la carte calendrier avec les nouveaux prix scrapés
+        const byDateRes = await fetch(`/api/dashboard/by-date?date=${cardSelectedDate}`);
+        if (byDateRes.ok) {
+          const byDateData = await byDateRes.json();
+          setCardPricesByDate({
+            dateLabel: byDateData.dateLabel || cardSelectedDate,
+            competitors: byDateData.competitors || [],
+          });
         }
       }
     } catch (error) {
@@ -318,7 +392,7 @@ export default function Dashboard() {
     return filteredHotels.slice(start, end);
   }, [filteredHotels, currentPage]);
 
-  // Filter price data based on period
+  // Filter price data based on period (données issues des prix scrapés /api/dashboard/data)
   const filteredPriceEvolutionData = useMemo(() => {
     if (periodFilter === "7j") {
       return priceEvolutionData.slice(-7);
@@ -327,6 +401,20 @@ export default function Dashboard() {
     }
     return priceEvolutionData.slice(-30);
   }, [priceEvolutionData, periodFilter]);
+
+  // Domaine Y dynamique pour le graphique (éviter de couper les prix scrapés)
+  const chartDomainY = useMemo(() => {
+    if (filteredPriceEvolutionData.length === 0) return [0, 200];
+    const values = filteredPriceEvolutionData.flatMap((d) => [
+      d.monHotel ?? 0,
+      d.moyenneConcurrents ?? 0,
+    ]).filter((v) => typeof v === "number" && v > 0);
+    if (values.length === 0) return [0, 200];
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const padding = Math.max(20, (max - min) * 0.1);
+    return [Math.max(0, Math.floor(min - padding)), Math.ceil(max + padding)];
+  }, [filteredPriceEvolutionData]);
 
   // Handle export CSV
   const handleExportCSV = () => {
@@ -483,18 +571,82 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <CardDescription className="text-xs font-semibold uppercase tracking-wide">TARIF MOYEN CONCURRENTS</CardDescription>
-                  <BarChart3 className="h-8 w-8 text-primary flex-shrink-0" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div>
-                  <div className="text-3xl font-bold">{avgPrice > 0 ? `${avgPrice} €` : 'N/A'}</div>
-                  <div className="mt-2 text-sm text-muted-foreground">Prix moyen surveillé</div>
-                </div>
+            {/* Carte type calendrier : date choisie + prix de chaque concurrent */}
+            <Card className="relative overflow-hidden">
+              <div className="absolute top-0 left-0 bg-primary/15 text-primary text-xs font-semibold uppercase tracking-wide px-3 py-2 rounded-br-lg">
+                {cardPricesByDate?.dateLabel ?? new Date(cardSelectedDate).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
+              </div>
+              <div className="absolute top-0 right-0 p-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-primary hover:bg-primary/10" title="Choisir une date">
+                      <Calendar className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="p-3 w-64">
+                    <label className="text-xs font-medium text-muted-foreground block mb-2">Choisir le jour</label>
+                    <Input
+                      type="date"
+                      value={cardSelectedDate}
+                      onChange={(e) => setCardSelectedDate(e.target.value)}
+                      className="w-full mb-3"
+                    />
+                    {availableDatesForCard.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">Prix disponibles pour :</p>
+                        <div className="flex flex-wrap gap-1">
+                          {availableDatesForCard.map((d) => (
+                            <Button
+                              key={d}
+                              variant={cardSelectedDate === d ? "secondary" : "outline"}
+                              size="sm"
+                              className="text-xs h-7"
+                              onClick={() => setCardSelectedDate(d)}
+                            >
+                              {new Date(d + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <CardContent className="pt-12 pb-3 px-3">
+                {loadingCardDate ? (
+                  <div className="space-y-1.5 max-h-[140px] flex items-center justify-center py-6 text-sm text-muted-foreground">
+                    Chargement...
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-[140px] overflow-y-auto">
+                    {cardPricesByDate && cardPricesByDate.competitors.length > 0 ? (
+                      cardPricesByDate.competitors.map((c) => (
+                        <div key={c.name} className="flex items-center justify-between text-sm gap-2 py-0.5">
+                          <span className="truncate font-medium" title={c.name}>
+                            {c.isMyHotel ? (
+                              <span className="text-primary">{c.name}</span>
+                            ) : (
+                              c.name
+                            )}
+                          </span>
+                          <span className="font-semibold text-primary shrink-0">
+                            {c.price > 0 ? `${Math.round(c.price)} €` : "—"}
+                          </span>
+                        </div>
+                      ))
+                    ) : cardPricesByDate?.competitors.length === 0 ? (
+                      <div className="text-sm text-muted-foreground py-2">
+                        Aucun prix pour cette date. Les prix sont enregistrés pour les dates J+7, J+14, J+30 (lancez un scan).
+                      </div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground py-2">
+                        {availableDatesForCard.length === 0
+                          ? "Lancez un scan pour enregistrer des prix (J+7, J+14, J+30)."
+                          : "Aucune donnée."}
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -520,8 +672,18 @@ export default function Dashboard() {
             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>Évolution des tarifs</CardTitle>
+                <p className="text-sm text-muted-foreground font-normal">
+                  Données issues des scans (mon hôtel vs moyenne des concurrents).
+                </p>
               </CardHeader>
               <CardContent>
+                {filteredPriceEvolutionData.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                    <BarChart3 className="h-12 w-12 mb-3 opacity-50" />
+                    <p className="text-sm">Aucun prix enregistré.</p>
+                    <p className="text-xs mt-1">Lancez un scan pour remplir le graphique et le calendrier.</p>
+                  </div>
+                ) : (
                 <ResponsiveContainer width="100%" height={350}>
                   <AreaChart data={filteredPriceEvolutionData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                     <defs>
@@ -543,8 +705,7 @@ export default function Dashboard() {
                     />
                     <YAxis 
                       stroke="#6b7280" 
-                      domain={[0, 200]} 
-                      ticks={[0, 50, 100, 150, 200]}
+                      domain={chartDomainY as [number, number]}
                       tick={{ fontSize: 12, fill: "#6b7280" }}
                     />
                     <Tooltip content={<DashboardTooltip />} />
@@ -556,6 +717,7 @@ export default function Dashboard() {
                       fillOpacity={1}
                       fill="url(#colorMonHotel)"
                       name="Mon hôtel"
+                      connectNulls
                     />
                     <Area 
                       type="monotone" 
@@ -565,9 +727,11 @@ export default function Dashboard() {
                       fillOpacity={1}
                       fill="url(#colorMoyenneConcurrents)"
                       name="Moyenne concurrents"
+                      connectNulls
                     />
                   </AreaChart>
                 </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 

@@ -1,173 +1,156 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getOrCreateDefaultHotel } from "@/lib/hotel";
 
+/**
+ * GET /api/dashboard/data
+ * Lit les tables scraper (hotels, rate_snapshots) alimentées par le backend Railway.
+ * Même format de réponse que avant pour compatibilité avec le front.
+ */
 export async function GET(request: NextRequest) {
   try {
-    // Récupérer l'hôtel principal (créé automatiquement si nécessaire)
-    const hotel = await getOrCreateDefaultHotel();
-
-    // Récupérer les concurrents surveillés (y compris l'hôtel de l'utilisateur s'il a une URL)
-    const competitors = await prisma.competitor.findMany({
-      where: {
-        hotelId: hotel.id,
-        isMonitored: true,
-      },
-      orderBy: {
-        name: "asc",
-      },
-    });
-
-    // Identifier l'hôtel de l'utilisateur (competitor avec tag "mon-hôtel" ou même URL que l'hôtel)
-    const myHotelCompetitor = competitors.find(
-      (c) => c.tags === "mon-hôtel" || (hotel.url && c.url === hotel.url)
-    );
-
-    // Récupérer les derniers snapshots de prix (pour chaque concurrent, le plus récent pour chaque date)
-    const datesToCheck = [7, 14, 30].map((days) => {
-      const date = new Date();
-      date.setDate(date.getDate() + days);
-      date.setHours(0, 0, 0, 0);
-      return date;
-    });
-
-    const rateSnapshots = await prisma.rateSnapshot.findMany({
-      where: {
-        hotelId: hotel.id,
-        date: {
-          in: datesToCheck,
+    const scraperHotels = await prisma.scraperHotel.findMany({
+      where: { isMonitored: true },
+      orderBy: [{ isClient: "desc" }, { name: "asc" }],
+      include: {
+        rateSnapshots: {
+          orderBy: { scrapedAt: "desc" },
         },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
-      include: {
-        competitor: true,
-      },
     });
 
-    // Organiser les données par concurrent et par date
-    const competitorData = competitors.map((competitor: { id: string; name: string; location: string; stars: number | null; url: string | null; source: string; tags: string | null }) => {
-      const snapshots = rateSnapshots.filter((s: { competitorId: string }) => s.competitorId === competitor.id);
-      
-      // Pour chaque date, prendre le snapshot le plus récent
-      const pricesByDate: Record<string, { price: number; currency: string; available: boolean; date: Date }> = {};
-      
-      snapshots.forEach((snapshot: { date: Date; price: number; currency: string; available: boolean; createdAt: Date }) => {
-        const dateKey = snapshot.date.toISOString().split("T")[0];
-        if (!pricesByDate[dateKey] || snapshot.createdAt > pricesByDate[dateKey].date) {
-          pricesByDate[dateKey] = {
-            price: snapshot.price,
-            currency: snapshot.currency,
-            available: snapshot.available,
-            date: snapshot.createdAt,
-          };
-        }
+    if (scraperHotels.length === 0) {
+      return NextResponse.json({
+        kpis: {
+          totalCompetitors: 0,
+          activeAlerts: 0,
+          avgCompetitorPrice: 0,
+          minCompetitorPrice: 0,
+          priceGap: 0,
+        },
+        chartData: [],
+        hotelsTable: [],
+        competitors: [],
       });
+    }
 
-      // Calculer la moyenne des prix pour ce concurrent
+    const clientHotel = scraperHotels.find((h) => h.isClient);
+    const competitorHotels = scraperHotels.filter((h) => !h.isClient);
+
+    // Pour chaque hôtel : dernier prix par date de séjour (dateCheckin)
+    const since = new Date();
+    since.setDate(since.getDate() - 90);
+
+    const dateKeysSet = new Set<string>();
+    const pricesByHotelByDate: Record<string, Record<string, { price: number; scrapedAt: Date }>> = {};
+
+    for (const hotel of scraperHotels) {
+      pricesByHotelByDate[hotel.id] = {};
+      for (const s of hotel.rateSnapshots) {
+        if (s.scrapedAt < since) continue;
+        const dateKey = s.dateCheckin instanceof Date
+          ? s.dateCheckin.toISOString().split("T")[0]
+          : String(s.dateCheckin).slice(0, 10);
+        dateKeysSet.add(dateKey);
+        const price = s.price ?? 0;
+        if (price > 0 && (!pricesByHotelByDate[hotel.id][dateKey] || s.scrapedAt > pricesByHotelByDate[hotel.id][dateKey].scrapedAt)) {
+          pricesByHotelByDate[hotel.id][dateKey] = { price, scrapedAt: s.scrapedAt };
+        }
+      }
+    }
+
+    const datesToCheck = Array.from(dateKeysSet).sort();
+
+    if (datesToCheck.length === 0) {
+      const now = new Date();
+      const utcY = now.getUTCFullYear(), utcM = now.getUTCMonth(), utcD = now.getUTCDate();
+      for (let i = 0; i < 31; i++) {
+        datesToCheck.push(new Date(Date.UTC(utcY, utcM, utcD + i)).toISOString().split("T")[0]);
+      }
+      datesToCheck.sort();
+    }
+
+    const competitorData = scraperHotels.map((hotel) => {
+      const pricesByDate = pricesByHotelByDate[hotel.id] || {};
       const prices = Object.values(pricesByDate).map((p) => p.price).filter((p) => p > 0);
       const avgPrice = prices.length > 0 ? prices.reduce((sum, p) => sum + p, 0) / prices.length : 0;
       const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
-
-      // Identifier si c'est l'hôtel de l'utilisateur
-      const isMyHotel = competitor.id === myHotelCompetitor?.id;
+      const lastSnapshot = hotel.rateSnapshots[0] ?? null;
 
       return {
-        id: competitor.id,
-        name: competitor.name,
-        location: competitor.location,
-        stars: competitor.stars || 0,
-        url: competitor.url,
-        source: competitor.source,
+        id: hotel.id,
+        name: hotel.name,
+        location: hotel.location ?? "",
+        stars: hotel.stars ?? 0,
+        url: hotel.url,
         avgPrice,
         minPrice,
         pricesByDate,
-        lastUpdate: snapshots.length > 0 ? snapshots[0].createdAt : null,
-        isMyHotel,
+        lastUpdate: lastSnapshot?.scrapedAt ?? null,
+        isMyHotel: hotel.isClient,
       };
     });
 
-    // Compter les alertes actives = nombre de concurrents surveillés
-    const activeAlerts = competitors.length;
+    const myHotelData = competitorData.find((c) => c.isMyHotel);
+    const competitorsOnly = competitorData.filter((c) => !c.isMyHotel);
 
-    // Séparer les concurrents de l'hôtel de l'utilisateur
-    const myHotelData = competitorData.find((c: { isMyHotel: boolean }) => c.isMyHotel);
-    const competitorsOnly = competitorData.filter((c: { isMyHotel: boolean }) => !c.isMyHotel);
-
-    // Calculer les KPIs globaux (uniquement pour les concurrents, pas l'hôtel de l'utilisateur)
     const allCompetitorPrices = competitorsOnly
-      .map((c: { avgPrice: number }) => c.avgPrice)
-      .filter((p: number) => p > 0);
-    
+      .map((c) => c.avgPrice)
+      .filter((p) => p > 0);
     const avgCompetitorPrice = allCompetitorPrices.length > 0
-      ? allCompetitorPrices.reduce((sum: number, p: number) => sum + p, 0) / allCompetitorPrices.length
+      ? allCompetitorPrices.reduce((sum, p) => sum + p, 0) / allCompetitorPrices.length
       : 0;
-
     const minCompetitorPrice = allCompetitorPrices.length > 0
       ? Math.min(...allCompetitorPrices)
       : 0;
-
-    // Calculer l'écart réel entre mon hôtel et la moyenne des concurrents
-    const myHotelAvgPrice = myHotelData?.avgPrice || 0;
+    const myHotelAvgPrice = myHotelData?.avgPrice ?? 0;
     const priceGap = myHotelAvgPrice > 0 && avgCompetitorPrice > 0
       ? Math.round(myHotelAvgPrice - avgCompetitorPrice)
       : 0;
 
-    // Préparer les données pour le graphique (évolution des prix sur les dernières dates)
-    const chartData = datesToCheck.map((date) => {
-      const dateKey = date.toISOString().split("T")[0];
-      
-      // Prix de mon hôtel pour cette date
-      const myHotelPrice = myHotelData?.pricesByDate[dateKey]?.price || 0;
-      
-      // Prix moyens des concurrents (sans mon hôtel) pour cette date
+    const chartData = datesToCheck.map((dateKey) => {
+      const myHotelPrice = myHotelData?.pricesByDate[dateKey]?.price;
       const competitorPricesForDate = competitorsOnly
-        .map((c: { pricesByDate: Record<string, { price: number }> }) => c.pricesByDate[dateKey]?.price || 0)
-        .filter((p: number) => p > 0);
-      
+        .map((c) => c.pricesByDate[dateKey]?.price)
+        .filter((p): p is number => typeof p === "number" && p > 0);
       const avgPriceForDate = competitorPricesForDate.length > 0
-        ? competitorPricesForDate.reduce((sum: number, p: number) => sum + p, 0) / competitorPricesForDate.length
-        : 0;
+        ? competitorPricesForDate.reduce((sum, p) => sum + p, 0) / competitorPricesForDate.length
+        : null;
+
+      const dateLabel = new Date(dateKey + "T12:00:00Z").toLocaleDateString("fr-FR", {
+        day: "numeric",
+        month: "short",
+        timeZone: "UTC",
+      });
 
       return {
-        date: date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" }),
+        date: dateLabel,
         dateISO: dateKey,
-        moyenneConcurrents: Math.round(avgPriceForDate),
-        monHotel: Math.round(myHotelPrice),
+        moyenneConcurrents: avgPriceForDate != null ? Math.round(avgPriceForDate) : null,
+        monHotel: myHotelPrice != null && myHotelPrice > 0 ? Math.round(myHotelPrice) : null,
       };
     });
 
-    // Préparer les données pour le tableau des hôtels
-    const hotelsTable = competitorData.map((comp: { pricesByDate: Record<string, { price: number }>; avgPrice: number; id: string; name: string; stars: number | null; lastUpdate: Date | null; isMyHotel: boolean }) => {
-      // Trouver le prix minimum parmi toutes les dates
-      const allPrices = Object.values(comp.pricesByDate)
-        .map((p: { price: number }) => p.price)
-        .filter((p: number) => p > 0);
-      
-      const minOTA = allPrices.length > 0 ? Math.min(...allPrices) : 0;
-      const bookingPrice = comp.pricesByDate[Object.keys(comp.pricesByDate)[0]]?.price || 0;
-      
-      // Calculer le delta :
-      // - Si c'est mon hôtel : écart par rapport à la moyenne des concurrents
-      // - Si c'est un concurrent : écart par rapport à la moyenne des concurrents (sans mon hôtel)
-      const delta = comp.isMyHotel
-        ? (avgCompetitorPrice > 0 ? Math.round(comp.avgPrice - avgCompetitorPrice) : 0)
-        : (avgCompetitorPrice > 0 ? Math.round(comp.avgPrice - avgCompetitorPrice) : 0);
+    const chartDataFiltered = chartData
+      .filter((row) => row.monHotel != null || row.moyenneConcurrents != null)
+      .slice(-60);
 
-      // Calculer le temps depuis la dernière mise à jour
+    const hotelsTable = competitorData.map((comp) => {
+      const allPrices = Object.values(comp.pricesByDate).map((p) => p.price).filter((p) => p > 0);
+      const minOTA = allPrices.length > 0 ? Math.min(...allPrices) : 0;
+      const firstDateKey = Object.keys(comp.pricesByDate).sort()[0];
+      const bookingPrice = firstDateKey ? comp.pricesByDate[firstDateKey]?.price ?? 0 : 0;
+
+      const delta = avgCompetitorPrice > 0
+        ? Math.round(comp.avgPrice - avgCompetitorPrice)
+        : 0;
+
       let lastUpdateText = "Jamais";
       if (comp.lastUpdate) {
         const diffMs = Date.now() - comp.lastUpdate.getTime();
         const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-        if (diffHours < 1) {
-          lastUpdateText = "Il y a moins d'1h";
-        } else if (diffHours < 24) {
-          lastUpdateText = `Il y a ${diffHours}h`;
-        } else {
-          const diffDays = Math.floor(diffHours / 24);
-          lastUpdateText = `Il y a ${diffDays}j`;
-        }
+        if (diffHours < 1) lastUpdateText = "Il y a moins d'1h";
+        else if (diffHours < 24) lastUpdateText = `Il y a ${diffHours}h`;
+        else lastUpdateText = `Il y a ${Math.floor(diffHours / 24)}j`;
       }
 
       return {
@@ -176,7 +159,7 @@ export async function GET(request: NextRequest) {
         stars: comp.stars,
         minOTA,
         booking: bookingPrice,
-        expedia: 0, // À remplir si on a des données Expedia
+        expedia: 0,
         setConcurrent: Math.round(comp.avgPrice),
         delta,
         lastUpdate: lastUpdateText,
@@ -187,13 +170,13 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       kpis: {
-        totalCompetitors: competitors.length,
-        activeAlerts,
+        totalCompetitors: scraperHotels.length,
+        activeAlerts: scraperHotels.length,
         avgCompetitorPrice: Math.round(avgCompetitorPrice),
         minCompetitorPrice: Math.round(minCompetitorPrice),
         priceGap: Math.round(priceGap),
       },
-      chartData,
+      chartData: chartDataFiltered,
       hotelsTable,
       competitors: competitorData,
     });

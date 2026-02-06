@@ -12,7 +12,8 @@ import {
   ChevronRight,
   LogOut,
   Hotel,
-  Settings
+  Settings,
+  ScrollText,
 } from "lucide-react";
 import { useSidebar } from "./sidebar-context";
 import { createClient } from "@/lib/supabase/client";
@@ -105,6 +106,18 @@ export function Sidebar() {
           >
             <Bell className="h-5 w-5 flex-shrink-0" />
             {isOpen && <span>Alertes</span>}
+          </Link>
+          <Link
+            href="/app/logs"
+            className={`flex items-center ${isOpen ? "gap-3 px-3" : "justify-center px-2"} py-3 rounded-lg text-sm font-medium transition-colors ${
+              isActive("/app/logs")
+                ? "text-primary bg-primary/10 hover:bg-primary/15"
+                : "text-foreground hover:bg-accent hover:text-foreground"
+            }`}
+            title={!isOpen ? "Logs scraper" : undefined}
+          >
+            <ScrollText className="h-5 w-5 flex-shrink-0" />
+            {isOpen && <span>Logs scraper</span>}
           </Link>
           <Link
             href="/app/settings"

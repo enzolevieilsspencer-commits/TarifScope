@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateDefaultHotel } from "@/lib/hotel";
 import { createClient } from "@/lib/supabase/server";
-import { scrapeBookingHotel } from "@/lib/scraper/scraper_metadonne";
 import { z } from "zod";
 
 const updateHotelSchema = z.object({
@@ -64,41 +63,16 @@ export async function PUT(request: NextRequest) {
 
     const hotel = await getOrCreateDefaultHotel();
 
-    // Si une URL est fournie et qu'elle est différente de l'actuelle, scraper les infos
-    let scrapedData: {
-      name?: string;
-      location?: string;
-      stars?: number;
-      photoUrl?: string;
-    } = {};
+    const data: Record<string, unknown> = {};
+    if (validated.name !== undefined) data.name = validated.name;
+    if (validated.location !== undefined) data.location = validated.location;
+    if (validated.address !== undefined) data.address = validated.address;
+    if (validated.url !== undefined) data.url = validated.url;
+    if (validated.stars !== undefined) data.stars = validated.stars;
 
-    if (validated.url && validated.url !== hotel.url && validated.url.includes("booking.com")) {
-      try {
-        const scraped = await scrapeBookingHotel(validated.url);
-        scrapedData = {
-          name: scraped.name || undefined,
-          location: scraped.city || undefined,
-          stars: scraped.stars || undefined,
-          photoUrl: scraped.photo || undefined,
-        };
-      } catch (error) {
-        console.error("Erreur lors du scraping de l'URL hôtel:", error);
-        // On continue quand même avec les données fournies
-      }
-    }
-
-    const hotelWithPhoto = hotel as typeof hotel & { photoUrl?: string | null };
-    // Mettre à jour l'hôtel avec les données scrapées + celles fournies
     const updatedHotel = await prisma.hotel.update({
       where: { id: hotel.id },
-      data: {
-        name: validated.name || scrapedData.name || hotel.name,
-        location: validated.location || scrapedData.location || hotel.location,
-        address: validated.address || hotel.address,
-        url: validated.url || hotel.url,
-        stars: validated.stars || scrapedData.stars || hotel.stars,
-        photoUrl: scrapedData.photoUrl ?? hotelWithPhoto.photoUrl ?? undefined,
-      },
+      data,
     });
 
     return NextResponse.json({
@@ -108,8 +82,7 @@ export async function PUT(request: NextRequest) {
       address: updatedHotel.address,
       url: updatedHotel.url,
       stars: updatedHotel.stars,
-      photoUrl: updatedHotel.photoUrl,
-      scraped: Object.keys(scrapedData).length > 0,
+      photoUrl: (updatedHotel as typeof updatedHotel & { photoUrl?: string | null }).photoUrl ?? null,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

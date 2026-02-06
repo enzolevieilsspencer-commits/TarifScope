@@ -424,15 +424,16 @@ export default function CompetitorsPage() {
 
       const updatedCompetitor = await response.json();
 
-      // Mettre à jour la liste locale
+      // Mettre à jour la liste locale (conserver photoUrl pour éviter qu'elle disparaisse)
       setCompetitors(competitors.map(c => 
         String(c.id) === String(selectedCompetitor.id)
           ? {
               id: updatedCompetitor.id || c.id,
               name: updatedCompetitor.name,
               location: updatedCompetitor.location,
-              price: updatedCompetitor.price || c.price,
+              price: updatedCompetitor.price ?? c.price,
               stars: updatedCompetitor.stars,
+              photoUrl: updatedCompetitor.photoUrl ?? c.photoUrl,
               isMyHotel: false,
               isMonitored: updatedCompetitor.isMonitored,
               url: updatedCompetitor.url,

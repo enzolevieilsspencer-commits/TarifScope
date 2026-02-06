@@ -54,7 +54,9 @@ const CustomTooltip = ({ active, payload, label, competitorMapping }: any) => {
                   style={{ backgroundColor: competitorInfo.color || "#3b82f6" }}
                 />
                 <span className="text-sm text-gray-700">
-                  {competitorInfo.name || "Inconnu"}: <span className="font-bold text-gray-900">{entry.value}€</span>
+                  {competitorInfo.name || "Inconnu"}: <span className="font-bold text-gray-900">
+                    {entry.value != null && entry.value !== "" ? `${Number(entry.value)} €` : "—"}
+                  </span>
                 </span>
               </div>
             );
@@ -101,23 +103,22 @@ export default function HistoryPage() {
         // Stats par hôtel
         setHotelStats(data.hotelStats || []);
 
-        // Transformer les données du graphique :
-        // l'API envoie les prix indexés par ID de concurrent,
-        // on les remappe par nom de concurrent pour coller à l'UI existante.
+        // Transformer les données : l'API envoie les prix par ID concurrent,
+        // on remappe par nom pour le graphique. On garde null pour les absences (connectNulls).
         if (data.chartData && data.competitorMapping) {
-          const transformed = data.chartData.map((row: any) => {
-            const transformedRow: any = {
-              date: row.date,
-              dateISO: row.dateISO,
-            };
-
-            data.competitorMapping.forEach((comp: any) => {
-              const value = row[comp.id] ?? 0;
-              transformedRow[comp.name] = value;
-            });
-
-            return transformedRow;
-          });
+          const transformed = data.chartData
+            .map((row: any) => {
+              const transformedRow: any = {
+                date: row.date,
+                dateISO: row.dateISO,
+              };
+              data.competitorMapping.forEach((comp: any) => {
+                const value = row[comp.id];
+                transformedRow[comp.name] = value != null && value !== "" ? Number(value) : null;
+              });
+              return transformedRow;
+            })
+            .sort((a: any, b: any) => (a.dateISO || "").localeCompare(b.dateISO || ""));
 
           setAllPriceEvolutionData(transformed);
         } else {
@@ -154,6 +155,25 @@ export default function HistoryPage() {
     return allPriceEvolutionData.slice(-30);
   }, [allPriceEvolutionData, periodFilter]);
 
+  // Domaine Y dynamique pour afficher correctement les prix enregistrés
+  const chartDomainY = useMemo(() => {
+    if (priceEvolutionData.length === 0) return undefined;
+    const values: number[] = [];
+    priceEvolutionData.forEach((row: any) => {
+      Object.keys(row).forEach((key) => {
+        if (key !== "date" && key !== "dateISO") {
+          const v = row[key];
+          if (typeof v === "number" && v > 0) values.push(v);
+        }
+      });
+    });
+    if (values.length === 0) return undefined;
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const padding = Math.max(20, (max - min) * 0.1);
+    return [Math.max(0, Math.floor(min - padding)), Math.ceil(max + padding)] as [number, number];
+  }, [priceEvolutionData]);
+
   // Handle export CSV
   const handleExportCSV = () => {
     if (priceEvolutionData.length === 0) {
@@ -175,7 +195,8 @@ export default function HistoryPage() {
     const rows = priceEvolutionData.map((row: any) => {
       const rowData = [row.date];
       hotelNames.forEach((hotelName) => {
-        rowData.push((row[hotelName] || 0).toString());
+        const v = row[hotelName];
+        rowData.push(v != null && v !== "" ? String(Number(v)) : "");
       });
       return rowData;
     });
@@ -280,6 +301,7 @@ export default function HistoryPage() {
                     <YAxis 
                       stroke="#6b7280" 
                       tick={{ fontSize: 12, fill: "#6b7280" }}
+                      domain={chartDomainY}
                     />
                     <Tooltip content={<CustomTooltip competitorMapping={competitorMapping} />} />
                     {competitorMapping.map((comp: any) => (
@@ -292,6 +314,7 @@ export default function HistoryPage() {
                         fillOpacity={1}
                         fill={`url(#color-${comp.id})`}
                         name={comp.name}
+                        connectNulls
                       />
                     ))}
                   </AreaChart>

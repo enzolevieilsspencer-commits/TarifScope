@@ -41,6 +41,7 @@ model Hotel {
   @@index([name])
 }
 
+// Concurrent : max 5 par hôtel (hors competitor "mon-hôtel" créé automatiquement par les scans).
 model Competitor {
   id          String   @id @default(cuid())
   hotelId     String
@@ -51,7 +52,7 @@ model Competitor {
   stars       Int?
   photoUrl    String? // URL de la photo de l'hôtel
   isMonitored Boolean  @default(true)
-  tags        String? // "centre-ville", "plage", etc.
+  tags        String? // "centre-ville", "plage", ou "mon-hôtel" (réservé au scan)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -136,6 +137,63 @@ model RunLog {
 
   @@index([hotelId, startedAt]) // Pour tri chronologique
   @@index([status]) // Pour filtrer succès/échecs
+}
+
+// ============================================
+// TABLES SCRAPER (Railway) – lecture seule côté Next.js
+// Alimentées par le scraper ; même DB Supabase
+// ============================================
+
+model ScraperHotel {
+  id          String    @id
+  name        String
+  location    String?
+  address     String?
+  url         String    @unique
+  stars       Int?
+  photoUrl    String?   @map("photoUrl")
+  isClient    Boolean   @default(false) @map("isClient")
+  isMonitored Boolean   @default(true) @map("isMonitored")
+  createdAt   DateTime  @default(now()) @map("createdAt")
+  updatedAt   DateTime  @updatedAt @map("updatedAt")
+
+  rateSnapshots ScraperRateSnapshot[]
+  scraperLogs   ScraperLog[]
+
+  @@map("hotels")
+}
+
+model ScraperRateSnapshot {
+  id        String    @id
+  hotelId   String    @map("hotelId")
+  dateCheckin DateTime @map("dateCheckin") // Date de séjour (J+7, J+14, J+30)
+  price     Float?   // NULL si indisponible
+  currency  String   @default("EUR")
+  available Boolean  @default(true)
+  scrapedAt DateTime @default(now()) @map("scrapedAt")
+
+  hotel ScraperHotel @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  @@index([hotelId])
+  @@index([dateCheckin])
+  @@index([hotelId, dateCheckin, scrapedAt])
+  @@map("rate_snapshots")
+}
+
+model ScraperLog {
+  id               String    @id
+  status           String    // 'running' | 'success' | 'error'
+  hotelId          String?   @map("hotelId")
+  snapshotsCreated Int       @default(0) @map("snapshotsCreated")
+  error            String?
+  startedAt        DateTime  @default(now()) @map("startedAt")
+  completedAt      DateTime? @map("completedAt")
+
+  hotel ScraperHotel? @relation(fields: [hotelId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([startedAt(sort: Desc)])
+  @@map("scraper_logs")
 }
 
 // ============================================

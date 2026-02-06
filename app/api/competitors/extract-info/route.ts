@@ -1,61 +1,100 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { scrapeBookingHotel } from "@/lib/scraper/scraper_metadonne";
+
+const bookingUrlSchema = z
+  .string()
+  .min(1, "URL requise")
+  .refine(
+    (s) =>
+      s.startsWith("https://www.booking.com/") ||
+      s.startsWith("http://www.booking.com/"),
+    "L'URL doit être une page hôtel Booking.com"
+  );
 
 const extractInfoSchema = z.object({
-  url: z.string().url("L'URL n'est pas valide"),
+  url: bookingUrlSchema,
 });
 
+/**
+ * POST /api/competitors/extract-info
+ * Appelle le scraper Railway pour extraire nom, lieu, étoiles, photo depuis une URL Booking.com.
+ * Variable d'env : SCRAPER_API_URL (ex. https://ton-service.up.railway.app)
+ * Le scraper doit exposer : POST /extract avec body { "url": "https://..." } → { name, location?, stars?, photoUrl? }
+ */
 export async function POST(request: NextRequest) {
-  console.log("📥 Requête POST reçue sur /api/competitors/extract-info");
-  
   try {
     const body = await request.json();
-    console.log("📄 Body reçu:", { url: body.url?.substring(0, 50) });
-    
     const { url } = extractInfoSchema.parse(body);
-    console.log("✅ URL validée:", url.substring(0, 100));
 
-    // Vérifier que c'est une URL Booking.com
-    if (!url.includes("booking.com")) {
-      console.error("❌ URL n'est pas Booking.com");
+    const baseUrl = process.env.SCRAPER_API_URL?.replace(/\/$/, "");
+    if (!baseUrl) {
       return NextResponse.json(
-        { error: "Seules les URLs Booking.com sont supportées pour le moment" },
-        { status: 400 }
+        {
+          error: "Extraction non configurée. Définissez SCRAPER_API_URL (URL du scraper Railway).",
+          usePythonBackend: true,
+        },
+        { status: 501 }
       );
     }
 
-    console.log("🚀 Démarrage de l'extraction...");
-    // Utiliser le scraper
-    const data = await scrapeBookingHotel(url);
-    console.log("✅ Extraction terminée avec succès");
+    const extractUrl = `${baseUrl}/extract`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
-    // Adapter le format de réponse au format attendu par le frontend
+    const res = await fetch(extractUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const text = await res.text();
+      console.warn("Scraper extract failed:", res.status, text);
+      return NextResponse.json(
+        {
+          error: "Le scraper n'a pas pu extraire les infos. Vous pouvez ajouter le concurrent quand même (nom par défaut).",
+          usePythonBackend: true,
+        },
+        { status: 502 }
+      );
+    }
+
+    const data = (await res.json()) as {
+      name?: string;
+      location?: string;
+      stars?: number;
+      photoUrl?: string;
+    };
+
     return NextResponse.json({
-      name: data.name || "",
-      location: data.city || "",
-      stars: data.stars || 4,
-      photoUrl: data.photo || "",
+      name: data.name ?? "Concurrent Booking",
+      location: data.location ?? "",
       source: "booking.com",
-      url: url,
+      stars: data.stars ?? 4,
+      photoUrl: data.photoUrl ?? undefined,
     });
   } catch (error) {
-    console.error("❌ Erreur lors de l'extraction des infos:", error);
-
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: "Données invalides", details: error.issues },
         { status: 400 }
       );
     }
-
-    const errorMessage = error instanceof Error 
-      ? error.message 
-      : "Erreur lors de l'extraction des informations";
-
+    if ((error as Error).name === "AbortError") {
+      return NextResponse.json(
+        { error: "Délai d'attente dépassé. Ajoutez le concurrent avec les infos par défaut." },
+        { status: 504 }
+      );
+    }
+    console.error("Extract info error:", error);
     return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
+      {
+        error: "Impossible de joindre le scraper. Vérifiez SCRAPER_API_URL. Vous pouvez ajouter le concurrent quand même.",
+        usePythonBackend: true,
+      },
+      { status: 502 }
     );
   }
 }
