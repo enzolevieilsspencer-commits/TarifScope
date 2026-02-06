@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    const list = hotels.map((h) => ({
+    const list = hotels.map((h: (typeof hotels)[number]) => ({
       id: h.id,
       name: h.name,
       location: h.location ?? "",
