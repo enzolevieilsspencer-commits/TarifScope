@@ -39,15 +39,19 @@ export async function POST(request: NextRequest) {
 
     const extractUrl = `${baseUrl}/extract`;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 60_000); // 60 secondes
 
-    const res = await fetch(extractUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
+    let res: Response;
+    try {
+      res = await fetch(extractUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!res.ok) {
       const text = await res.text();
@@ -84,7 +88,7 @@ export async function POST(request: NextRequest) {
     }
     if ((error as Error).name === "AbortError") {
       return NextResponse.json(
-        { error: "Délai d'attente dépassé. Ajoutez le concurrent avec les infos par défaut." },
+        { error: "Le scraper a mis trop de temps à répondre. Vous pouvez ajouter le concurrent avec les infos par défaut." },
         { status: 504 }
       );
     }
