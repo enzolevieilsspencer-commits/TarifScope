@@ -14,8 +14,8 @@ async function testConnection() {
     console.log("✅ Connexion réussie !", result);
     
     // Test avec une requête simple
-    const hotels = await prisma.hotel.findMany({ take: 1 });
-    console.log("✅ Requête test réussie ! Nombre d'hôtels:", hotels.length);
+    const hotels = await prisma.scraperHotel.findMany({ take: 1 });
+    console.log("✅ Requête test réussie ! Nombre d'hôtels (hotels):", hotels.length);
     
   } catch (error: any) {
     console.error("❌ Erreur de connexion:");

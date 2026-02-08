@@ -284,67 +284,36 @@ export default function CompetitorsPage() {
     });
 
     try {
-      // 1) Tenter d'extraire les infos depuis l'URL
-      let payload: {
-        name: string;
-        location: string;
-        url: string;
-        source: string;
-        stars: number;
-        photoUrl?: string | null;
-        isMonitored: boolean;
-        tags?: string;
-      };
+      // 1) Extraire les infos depuis l'URL (scraper Railway). Si échec (502/timeout), on ne crée pas pour éviter un 400.
+      const extractResponse = await fetch("/api/competitors/extract-info", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: formData.url }),
+      });
 
-      try {
-        const extractResponse = await fetch("/api/competitors/extract-info", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ url: formData.url }),
-        });
-
-        if (extractResponse.ok) {
-          const data = await extractResponse.json();
-          payload = {
-            name: data.name || "Concurrent Booking",
-            location: data.location || "",
-            url: formData.url,
-            source: data.source || "booking.com",
-            stars: data.stars || 4,
-            photoUrl: data.photoUrl || null,
-            isMonitored: true,
-            tags: "",
-          };
-        } else {
-          // Fallback si l'extraction échoue
-          payload = {
-            name: formData.url,
-            location: "",
-            url: formData.url,
-            source: "booking.com",
-            stars: 4,
-            photoUrl: null,
-            isMonitored: true,
-            tags: "",
-          };
-        }
-      } catch {
-        // Fallback si l'extraction explose (erreur réseau, etc.)
-        payload = {
-          name: formData.url,
-          location: "",
-          url: formData.url,
-          source: "booking.com",
-          stars: 4,
-          photoUrl: null,
-          isMonitored: true,
-          tags: "",
-        };
+      if (!extractResponse.ok) {
+        const errData = await extractResponse.json().catch(() => ({}));
+        toast.dismiss(loadingToast);
+        toast.error(
+          errData.error ||
+            "L'extraction a échoué (scraper indisponible ou timeout). Réessayez ou vérifiez que le scraper Railway répond."
+        );
+        return;
       }
 
-      // 2) Créer le concurrent dans la DB avec les données extraites / par défaut
+      const data = await extractResponse.json();
+      const payload = {
+        name: (data.name ?? "Concurrent Booking").trim() || "Concurrent Booking",
+        location: (data.location ?? "").trim(),
+        url: formData.url.trim(),
+        source: (data.source ?? "booking.com").trim(),
+        stars: typeof data.stars === "number" ? data.stars : 4,
+        photoUrl: data.photoUrl && typeof data.photoUrl === "string" ? data.photoUrl : "",
+        isMonitored: true,
+        tags: "",
+      };
+
+      // 2) Créer le concurrent dans la DB (uniquement si l'extraction a réussi)
       const response = await fetch("/api/competitors", {
         method: "POST",
         headers: {

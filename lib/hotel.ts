@@ -1,64 +1,43 @@
 import { prisma } from "./prisma";
 import { createClient } from "./supabase/server";
 
+/** Type de l'hôtel client (ScraperHotel avec isClient: true) */
+export type ClientHotel = Awaited<ReturnType<typeof getClientHotel>>;
+
 /**
- * Récupère l'hôtel de l'utilisateur connecté ou le crée s'il n'existe pas
- * Nécessite une session utilisateur valide
+ * Récupère l'hôtel "client" (celui dont isClient = true dans la table hotels).
+ * Un seul hôtel client par base. Nécessite une session utilisateur pour les APIs qui l'appellent.
  */
-export async function getOrCreateUserHotel() {
-  try {
-    const supabase = await createClient();
-    
-    // Récupérer l'utilisateur connecté
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      throw new Error("Utilisateur non authentifié");
-    }
-
-    // Récupérer ou créer l'hôtel pour cet utilisateur
-    // Note: On utilise l'ID Supabase (uuid) comme userId
-    let hotel = await prisma.hotel.findUnique({
-      where: {
-        userId: user.id,
-      },
-    });
-
-    if (!hotel) {
-      // Créer un hôtel pour cet utilisateur
-      hotel = await prisma.hotel.create({
-        data: {
-          userId: user.id,
-          name: "Mon Hôtel",
-          location: "Paris, France",
-        },
-      });
-
-      // Créer aussi la WatchConfig par défaut
-      await prisma.watchConfig.create({
-        data: {
-          hotelId: hotel.id,
-          frequency: "1",
-          watchDates: "7,14,30",
-          alertThreshold: 10,
-        },
-      });
-    }
-
-    return hotel;
-  } catch (error) {
-    console.error("Erreur lors de la récupération/création de l'hôtel:", error);
-    throw error;
-  }
+export async function getClientHotel() {
+  const hotel = await prisma.scraperHotel.findFirst({
+    where: { isClient: true },
+  });
+  return hotel;
 }
 
 /**
- * @deprecated Utilisez getOrCreateUserHotel() à la place
- * Fonction de compatibilité temporaire
+ * Récupère l'hôtel client ou null. Compatibilité avec l'ancien getOrCreateDefaultHotel.
+ * Ne crée plus d'hôtel : l'hôtel client est créé via PUT /api/hotel si besoin.
  */
-export async function getOrCreateDefaultHotel() {
-  return getOrCreateUserHotel();
+export async function getOrCreateDefaultHotel(): Promise<ClientHotel> {
+  const hotel = await getClientHotel();
+  if (!hotel) {
+    throw new Error("Aucun hôtel client configuré. Ajoutez votre hôtel dans les paramètres.");
+  }
+  return hotel;
+}
+
+/**
+ * Vérifie que l'utilisateur est authentifié. À appeler dans les routes qui utilisent l'hôtel client.
+ */
+export async function requireUser() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user) {
+    throw new Error("Utilisateur non authentifié");
+  }
+  return user;
 }

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getOrCreateDefaultHotel } from "@/lib/hotel";
-import { createClient } from "@/lib/supabase/server";
+import { getClientHotel, requireUser } from "@/lib/hotel";
 import { z } from "zod";
+import { randomUUID } from "crypto";
 
 const updateHotelSchema = z.object({
   name: z.string().min(1).optional(),
@@ -12,22 +12,26 @@ const updateHotelSchema = z.object({
   stars: z.number().min(1).max(5).optional(),
 });
 
-// GET - Récupérer les infos de l'hôtel de l'utilisateur
+const createHotelSchema = z.object({
+  name: z.string().min(1),
+  location: z.string().optional(),
+  address: z.string().optional(),
+  url: z.string().url(),
+  stars: z.number().min(1).max(5).optional(),
+  photoUrl: z.string().url().optional().or(z.literal("")),
+});
+
+// GET - Récupérer l'hôtel client (isClient = true)
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    await requireUser();
+    const hotel = await getClientHotel();
+    if (!hotel) {
       return NextResponse.json(
-        { error: "Non authentifié" },
-        { status: 401 }
+        { error: "Aucun hôtel configuré. Ajoutez votre hôtel pour commencer." },
+        { status: 404 }
       );
     }
-
-    const hotel = await getOrCreateDefaultHotel();
-
-    const hotelWithPhoto = hotel as typeof hotel & { photoUrl?: string | null };
     return NextResponse.json({
       id: hotel.id,
       name: hotel.name,
@@ -35,9 +39,12 @@ export async function GET(request: NextRequest) {
       address: hotel.address,
       url: hotel.url,
       stars: hotel.stars,
-      photoUrl: hotelWithPhoto.photoUrl ?? null,
+      photoUrl: hotel.photoUrl ?? null,
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "Utilisateur non authentifié") {
+      return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Erreur lors de la récupération" },
       { status: 500 }
@@ -45,24 +52,42 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// PUT - Mettre à jour l'hôtel de l'utilisateur
+// PUT - Créer ou mettre à jour l'hôtel client (table hotels, isClient = true)
 export async function PUT(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    await requireUser();
+    const body = await request.json();
+    let hotel = await getClientHotel();
 
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: "Non authentifié" },
-        { status: 401 }
-      );
+    if (!hotel) {
+      // Créer l'hôtel client (url obligatoire)
+      const validated = createHotelSchema.parse(body);
+      const id = randomUUID();
+      hotel = await prisma.scraperHotel.create({
+        data: {
+          id,
+          name: validated.name,
+          location: validated.location ?? null,
+          address: validated.address ?? null,
+          url: validated.url,
+          stars: validated.stars ?? null,
+          photoUrl: validated.photoUrl && validated.photoUrl !== "" ? validated.photoUrl : null,
+          isClient: true,
+          isMonitored: true,
+        },
+      });
+      return NextResponse.json({
+        id: hotel.id,
+        name: hotel.name,
+        location: hotel.location,
+        address: hotel.address,
+        url: hotel.url,
+        stars: hotel.stars,
+        photoUrl: hotel.photoUrl ?? null,
+      });
     }
 
-    const body = await request.json();
     const validated = updateHotelSchema.parse(body);
-
-    const hotel = await getOrCreateDefaultHotel();
-
     const data: Record<string, unknown> = {};
     if (validated.name !== undefined) data.name = validated.name;
     if (validated.location !== undefined) data.location = validated.location;
@@ -70,7 +95,7 @@ export async function PUT(request: NextRequest) {
     if (validated.url !== undefined) data.url = validated.url;
     if (validated.stars !== undefined) data.stars = validated.stars;
 
-    const updatedHotel = await prisma.hotel.update({
+    const updatedHotel = await prisma.scraperHotel.update({
       where: { id: hotel.id },
       data,
     });
@@ -82,9 +107,12 @@ export async function PUT(request: NextRequest) {
       address: updatedHotel.address,
       url: updatedHotel.url,
       stars: updatedHotel.stars,
-      photoUrl: (updatedHotel as typeof updatedHotel & { photoUrl?: string | null }).photoUrl ?? null,
+      photoUrl: updatedHotel.photoUrl ?? null,
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "Utilisateur non authentifié") {
+      return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: "Données invalides", details: error.issues },

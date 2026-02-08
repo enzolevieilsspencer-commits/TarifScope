@@ -14,134 +14,8 @@ datasource db {
 }
 
 // ============================================
-// MODÈLES MÉTIER (Veille concurrentielle)
-// ============================================
-
-model Hotel {
-  id        String   @id @default(cuid())
-  userId    String   @unique // 1 User = 1 Hotel
-  name      String
-  location  String? // Ville, région
-  address   String? // Adresse complète
-  stars     Int? // Classification (1-5)
-  url       String? // URL de l'hôtel (Booking.com, etc.)
-  photoUrl  String? // URL de la photo de l'hôtel
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  // Note: userId fait référence à auth.users (Supabase Auth), pas à une table Prisma User
-  competitors   Competitor[]
-  rateSnapshots RateSnapshot[]
-  alerts        Alert[]
-  runLogs       RunLog[]
-  watchConfig   WatchConfig?
-
-  @@index([userId])
-  @@index([name])
-}
-
-// Concurrent : max 5 par hôtel (hors competitor "mon-hôtel" créé automatiquement par les scans).
-model Competitor {
-  id          String   @id @default(cuid())
-  hotelId     String
-  name        String
-  location    String
-  url         String // URL Booking.com
-  source      String   @default("booking.com")
-  stars       Int?
-  photoUrl    String? // URL de la photo de l'hôtel
-  isMonitored Boolean  @default(true)
-  tags        String? // "centre-ville", "plage", ou "mon-hôtel" (réservé au scan)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  hotel         Hotel          @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  rateSnapshots RateSnapshot[]
-  alerts        Alert[]
-
-  @@index([hotelId])
-  @@index([url])
-  @@index([isMonitored])
-}
-
-model RateSnapshot {
-  id           String   @id @default(cuid())
-  hotelId      String
-  competitorId String
-  runLogId     String? // Optionnel - pour traçabilité
-  date         DateTime // Date de séjour surveillée (J+7, J+14, J+30)
-  price        Float // Prix en euros
-  currency     String   @default("EUR")
-  available    Boolean  @default(true)
-  rawData      String? // JSON pour debug (données brutes du scraping)
-  createdAt    DateTime @default(now())
-
-  // Relations
-  hotel      Hotel      @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  competitor Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
-  runLog     RunLog?    @relation(fields: [runLogId], references: [id], onDelete: SetNull)
-
-  @@unique([competitorId, date, createdAt]) // Évite les doublons
-  @@index([hotelId, competitorId, date]) // Pour requêtes dashboard/history
-  @@index([date]) // Pour filtres par période
-  @@index([runLogId]) // Pour traçabilité
-}
-
-model WatchConfig {
-  id             String   @id @default(cuid())
-  hotelId        String   @unique // 1 config par hôtel
-  frequency      String   @default("2") // "2" = 2 fois/jour
-  watchDates     String   @default("7,14,30") // J+7, J+14, J+30 (format: "7,14,30")
-  alertThreshold Float? // Seuil en euros (ex: alerte si variation > 10€)
-  alertPercent   Float? // Seuil en % (ex: alerte si variation > 5%)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  hotel Hotel @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-}
-
-model Alert {
-  id           String   @id @default(cuid())
-  hotelId      String
-  competitorId String? // Optionnel (peut être une alerte générale)
-  type         String // "price_drop", "price_increase", "new_minimum", "competitor_added"
-  level        String   @default("info") // "info" | "warning" | "critical"
-  message      String
-  metadata     Json? // Données additionnelles (JSON flexible)
-  isRead       Boolean  @default(false)
-  createdAt    DateTime @default(now())
-
-  hotel      Hotel       @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  competitor Competitor? @relation(fields: [competitorId], references: [id], onDelete: SetNull)
-
-  @@index([hotelId, createdAt]) // Pour tri par date
-  @@index([isRead]) // Pour filtrer les non lus
-  @@index([type]) // Pour filtrer par type
-}
-
-model RunLog {
-  id               String    @id @default(cuid())
-  hotelId          String
-  status           String // "success" | "failed" | "partial"
-  startedAt        DateTime  @default(now())
-  completedAt      DateTime?
-  duration         Int? // en millisecondes
-  error            String? // message d'erreur si échec
-  snapshotsCreated Int       @default(0) // Nombre de snapshots créés
-
-  hotel         Hotel          @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  rateSnapshots RateSnapshot[]
-
-  @@index([hotelId, startedAt]) // Pour tri chronologique
-  @@index([status]) // Pour filtrer succès/échecs
-}
-
-// ============================================
-// TABLES SCRAPER (Railway) – lecture seule côté Next.js
-// Alimentées par le scraper ; même DB Supabase
+// TABLES UNIQUES (flux back : 3 tables Supabase)
+// hotels, rate_snapshots, scraper_logs — utilisées par le scraper Railway et Next.js
 // ============================================
 
 model ScraperHotel {
@@ -199,5 +73,5 @@ model ScraperLog {
 // ============================================
 // AUTHENTIFICATION (Supabase Auth)
 // ============================================
-// Les utilisateurs sont gérés par Supabase Auth dans auth.users
-// La table Hotel utilise userId (UUID de Supabase) comme référence
+// Les utilisateurs sont gérés par Supabase Auth (auth.users).
+// L'hôtel "client" est identifié par isClient = true dans hotels.

@@ -1,62 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getOrCreateDefaultHotel } from "@/lib/hotel";
+import { getClientHotel } from "@/lib/hotel";
 
 export async function GET(request: NextRequest) {
   try {
-    // Récupérer l'hôtel (créé automatiquement si nécessaire)
-    const hotel = await getOrCreateDefaultHotel();
-
-    // Récupérer les derniers scans
-    const recentScans = await prisma.runLog.findMany({
-      where: {
-        hotelId: hotel.id,
-      },
-      orderBy: {
-        startedAt: "desc",
-      },
-      take: 10,
-      include: {
-        rateSnapshots: {
-          take: 1,
-        },
-      },
-    });
-
-    // Compter les scans d'aujourd'hui
+    const hotel = await getClientHotel();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const todayScans = await prisma.runLog.count({
+    if (!hotel) {
+      return NextResponse.json({
+        hotel: null,
+        todayScans: 0,
+        maxScansPerDay: 2,
+        recentScans: [],
+      });
+    }
+
+    const whereLog = { hotelId: hotel.id };
+    const recentScans = await prisma.scraperLog.findMany({
+      where: whereLog,
+      orderBy: { startedAt: "desc" },
+      take: 10,
+    });
+
+    const todayScans = await prisma.scraperLog.count({
       where: {
-        hotelId: hotel.id,
-        startedAt: {
-          gte: today,
-          lt: tomorrow,
-        },
-        status: {
-          in: ["success", "partial"],
-        },
+        ...whereLog,
+        startedAt: { gte: today, lt: tomorrow },
+        status: "success",
       },
     });
 
     return NextResponse.json({
-      hotel: {
-        id: hotel.id,
-        name: hotel.name,
-      },
+      hotel: { id: hotel.id, name: hotel.name },
       todayScans,
       maxScansPerDay: 2,
-      recentScans: recentScans.map((scan: { id: string; status: string; startedAt: Date; completedAt: Date | null; duration: number | null; error: string | null; rateSnapshots: unknown[] }) => ({
-        id: scan.id,
-        status: scan.status,
-        startedAt: scan.startedAt,
-        completedAt: scan.completedAt,
-        duration: scan.duration,
-        error: scan.error,
-        snapshotCount: scan.rateSnapshots.length,
+      recentScans: recentScans.map((log) => ({
+        id: log.id,
+        status: log.status,
+        startedAt: log.startedAt,
+        completedAt: log.completedAt,
+        duration: log.completedAt
+          ? Math.round((log.completedAt.getTime() - log.startedAt.getTime()) / 1000)
+          : null,
+        error: log.error,
+        snapshotCount: log.snapshotsCreated,
       })),
     });
   } catch (error) {

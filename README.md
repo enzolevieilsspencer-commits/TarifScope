@@ -1,4 +1,10 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TarifScope
+
+Application Next.js de veille concurrentielle pour l'hôtellerie (dashboard, concurrents, historique des prix). Le front lit les données dans Supabase ; le scraping est assuré par un backend déployé sur Railway.
+
+## Connexion Back / Front
+
+Voir **[INTEGRATION.md](./INTEGRATION.md)** pour l’architecture complète, les variables d’environnement (Vercel + Railway) et le lien entre le scraper (Railway) et cette app (Vercel) via Supabase.
 
 ## Getting Started
 

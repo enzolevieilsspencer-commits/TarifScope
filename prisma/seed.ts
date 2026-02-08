@@ -1,65 +1,54 @@
 import { prisma } from "../lib/prisma";
+import { randomUUID } from "crypto";
 
 async function main() {
-  // Le modèle Hotel requiert un userId (Supabase UUID).
-  // En seed, on utilise une valeur dédiée via env, sinon un UUID "dummy".
-  const seedUserId =
-    process.env.SEED_USER_ID || "00000000-0000-0000-0000-000000000000";
-
-  // Vérifier si un hôtel existe déjà
-  let hotel = await prisma.hotel.findFirst();
-  
-  if (!hotel) {
-    // Créer un hôtel par défaut
-    hotel = await prisma.hotel.create({
-      data: {
-        userId: seedUserId,
-        name: "Mon Hôtel",
-        location: "Paris, France",
-        url: "https://www.booking.com/hotel/example",
-      },
-    });
-    console.log("✅ Hôtel créé:", hotel.name);
-  } else {
-    console.log("✅ Hôtel existant trouvé:", hotel.name);
-  }
-
-  // Vérifier si des concurrents existent déjà
-  const existingCompetitors = await prisma.competitor.findMany({
-    where: { hotelId: hotel.id },
+  const clientHotel = await prisma.scraperHotel.findFirst({
+    where: { isClient: true },
   });
 
-  if (existingCompetitors.length > 0) {
-    console.log(`✅ ${existingCompetitors.length} concurrent(s) existant(s) trouvé(s)`);
+  if (!clientHotel) {
+    const id = randomUUID();
+    await prisma.scraperHotel.create({
+      data: {
+        id,
+        name: "Mon Hôtel",
+        location: "Paris, France",
+        url: `https://www.booking.com/hotel/fr/seed-client-${id.slice(0, 8)}`,
+        isClient: true,
+        isMonitored: true,
+      },
+    });
+    console.log("✅ Hôtel client créé: Mon Hôtel");
+  } else {
+    console.log("✅ Hôtel client existant:", clientHotel.name);
+  }
+
+  const competitorCount = await prisma.scraperHotel.count({
+    where: { isClient: false },
+  });
+  if (competitorCount > 0) {
+    console.log(`✅ ${competitorCount} concurrent(s) existant(s)`);
     return;
   }
 
-  // Créer quelques concurrents d'exemple
+  const baseId = randomUUID().slice(0, 8);
   const competitors = [
-    {
-      name: "Hôtel Concurrent 1",
-      location: "Paris, France",
-      url: "https://www.booking.com/hotel/concurrent1",
-      stars: 4,
-    },
-    {
-      name: "Hôtel Concurrent 2",
-      location: "Paris, France",
-      url: "https://www.booking.com/hotel/concurrent2",
-      stars: 5,
-    },
+    { name: "Hôtel Concurrent 1", location: "Paris, France", url: `https://www.booking.com/hotel/fr/seed-c1-${baseId}`, stars: 4 },
+    { name: "Hôtel Concurrent 2", location: "Paris, France", url: `https://www.booking.com/hotel/fr/seed-c2-${baseId}`, stars: 5 },
   ];
-
-  for (const competitor of competitors) {
-    const created = await prisma.competitor.create({
+  for (const c of competitors) {
+    await prisma.scraperHotel.create({
       data: {
-        ...competitor,
-        hotelId: hotel.id,
+        id: randomUUID(),
+        name: c.name,
+        location: c.location,
+        url: c.url,
+        stars: c.stars,
+        isClient: false,
         isMonitored: true,
-        source: "booking.com",
       },
     });
-    console.log("✅ Concurrent créé:", created.name);
+    console.log("✅ Concurrent créé:", c.name);
   }
 }
 
