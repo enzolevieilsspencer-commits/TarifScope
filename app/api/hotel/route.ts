@@ -10,6 +10,7 @@ const updateHotelSchema = z.object({
   address: z.string().optional(),
   url: z.string().url().optional(),
   stars: z.number().min(1).max(5).optional(),
+  photoUrl: z.string().url().optional().or(z.literal("")),
 });
 
 const createHotelSchema = z.object({
@@ -94,6 +95,7 @@ export async function PUT(request: NextRequest) {
     if (validated.address !== undefined) data.address = validated.address;
     if (validated.url !== undefined) data.url = validated.url;
     if (validated.stars !== undefined) data.stars = validated.stars;
+    if (validated.photoUrl !== undefined) data.photoUrl = validated.photoUrl && validated.photoUrl !== "" ? validated.photoUrl : null;
 
     const updatedHotel = await prisma.scraperHotel.update({
       where: { id: hotel.id },

@@ -48,6 +48,7 @@ type Competitor = {
   id: number | string;
   name: string;
   location: string;
+  address?: string;
   price: number;
   stars: number;
   photoUrl?: string;
@@ -85,6 +86,7 @@ export default function CompetitorsPage() {
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [isExtracting, setIsExtracting] = useState(false);
+  const [extractFailed, setExtractFailed] = useState(false);
 
   // Charger les concurrents depuis l'API
   useEffect(() => {
@@ -97,7 +99,8 @@ export default function CompetitorsPage() {
           setCompetitors(data.map((c: any) => ({
             id: c.id || String(Date.now()),
             name: c.name,
-            location: c.location,
+            location: c.location ?? "",
+            address: c.address ?? "",
             price: c.price || 0,
             stars: c.stars || 0,
             photoUrl: c.photoUrl,
@@ -278,10 +281,12 @@ export default function CompetitorsPage() {
     }
 
     setFormErrors({});
+    setExtractFailed(false);
 
     const loadingToast = toast.loading("Ajout du concurrent en cours...", {
       duration: Infinity,
     });
+    setIsExtracting(true);
 
     try {
       // 1) Extraire les infos depuis l'URL (scraper Railway). Si échec (502/timeout), on ne crée pas pour éviter un 400.
@@ -292,19 +297,24 @@ export default function CompetitorsPage() {
       });
 
       if (!extractResponse.ok) {
+        setIsExtracting(false);
         const errData = await extractResponse.json().catch(() => ({}));
         toast.dismiss(loadingToast);
+        setExtractFailed(true);
         toast.error(
           errData.error ||
-            "L'extraction a échoué (scraper indisponible ou timeout). Réessayez ou vérifiez que le scraper Railway répond."
+            "L'extraction a échoué (scraper indisponible ou timeout). Vous pouvez ajouter le concurrent quand même ci-dessous."
         );
         return;
       }
+      setExtractFailed(false);
 
       const data = await extractResponse.json();
+      setIsExtracting(false);
       const payload = {
         name: (data.name ?? "Concurrent Booking").trim() || "Concurrent Booking",
         location: (data.location ?? "").trim(),
+        address: (data.address ?? "").trim(),
         url: formData.url.trim(),
         source: (data.source ?? "booking.com").trim(),
         stars: typeof data.stars === "number" ? data.stars : 4,
@@ -336,6 +346,7 @@ export default function CompetitorsPage() {
           id: newCompetitor.id || String(Date.now()),
           name: newCompetitor.name,
           location: newCompetitor.location,
+          address: newCompetitor.address,
           price: newCompetitor.price || 0,
           stars: newCompetitor.stars,
           photoUrl: newCompetitor.photoUrl,
@@ -349,16 +360,77 @@ export default function CompetitorsPage() {
 
       setIsCreateDialogOpen(false);
       resetForm();
+      setExtractFailed(false);
       toast.dismiss(loadingToast);
       toast.success("Concurrent ajouté avec succès");
     } catch (error) {
       console.error("Erreur lors de la création:", error);
+      setIsExtracting(false);
       toast.dismiss(loadingToast);
       toast.error(
         error instanceof Error
           ? error.message
           : "Erreur lors de la création du concurrent"
       );
+    }
+  };
+
+  // Ajout sans extraction (fallback quand le scraper renvoie 502)
+  const handleAddWithoutExtraction = async () => {
+    if (!formData.url?.trim()) {
+      toast.error("Veuillez entrer l'URL Booking.com");
+      return;
+    }
+    if (!formData.url.includes("booking.com")) {
+      toast.error("Seules les URLs Booking.com sont supportées");
+      return;
+    }
+    const loadingToast = toast.loading("Ajout du concurrent...", { duration: Infinity });
+    try {
+      const response = await fetch("/api/competitors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: formData.name?.trim() || "Concurrent Booking",
+          location: formData.location?.trim() || "",
+          address: "",
+          url: formData.url.trim(),
+          source: "booking.com",
+          stars: 4,
+          photoUrl: "",
+          isMonitored: true,
+          tags: "",
+        }),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || "Erreur lors de la création");
+      }
+      const newCompetitor = await response.json();
+      setCompetitors([
+        ...competitors,
+        {
+          id: newCompetitor.id ?? String(Date.now()),
+          name: newCompetitor.name,
+          location: newCompetitor.location ?? "",
+          price: newCompetitor.price ?? 0,
+          stars: newCompetitor.stars ?? 4,
+          photoUrl: newCompetitor.photoUrl,
+          isMyHotel: false,
+          isMonitored: newCompetitor.isMonitored ?? true,
+          url: newCompetitor.url,
+          source: newCompetitor.source ?? "booking.com",
+          tags: newCompetitor.tags,
+        },
+      ]);
+      setIsCreateDialogOpen(false);
+      resetForm();
+      setExtractFailed(false);
+      toast.dismiss(loadingToast);
+      toast.success("Concurrent ajouté (sans extraction des détails)");
+    } catch (error) {
+      toast.dismiss(loadingToast);
+      toast.error(error instanceof Error ? error.message : "Erreur lors de l'ajout");
     }
   };
 
@@ -399,7 +471,8 @@ export default function CompetitorsPage() {
           ? {
               id: updatedCompetitor.id || c.id,
               name: updatedCompetitor.name,
-              location: updatedCompetitor.location,
+              location: updatedCompetitor.location ?? "",
+              address: updatedCompetitor.address ?? "",
               price: updatedCompetitor.price ?? c.price,
               stars: updatedCompetitor.stars,
               photoUrl: updatedCompetitor.photoUrl ?? c.photoUrl,
@@ -617,10 +690,10 @@ export default function CompetitorsPage() {
                     {/* Hotel Name */}
                     <h3 className="text-lg font-semibold text-center mb-2">{competitor.name}</h3>
 
-                    {/* Location */}
+                    {/* Adresse complète ou localisation */}
                     <div className="flex items-center justify-center gap-1 text-sm text-muted-foreground mb-4">
-                      <MapPin className="h-4 w-4" />
-                      {competitor.location}
+                      <MapPin className="h-4 w-4 shrink-0" />
+                      <span className="text-center">{competitor.address || competitor.location}</span>
                     </div>
 
                     {/* Stars */}
@@ -715,7 +788,13 @@ export default function CompetitorsPage() {
       </main>
 
       {/* Create Dialog */}
-      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+      <Dialog
+        open={isCreateDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) setExtractFailed(false);
+          setIsCreateDialogOpen(open);
+        }}
+      >
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Ajouter un concurrent</DialogTitle>
@@ -742,13 +821,23 @@ export default function CompetitorsPage() {
                 Entrez simplement l'URL de l'hôtel sur Booking.com, nous extrairons automatiquement les informations nécessaires.
               </p>
             </div>
+            {extractFailed && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 p-3 space-y-2">
+                <p className="text-sm text-amber-800 dark:text-amber-200">
+                  Le scraper est indisponible (502). Vous pouvez ajouter le concurrent avec l'URL saisie ; le nom par défaut sera « Concurrent Booking » (modifiable plus tard).
+                </p>
+                <Button variant="secondary" size="sm" onClick={handleAddWithoutExtraction}>
+                  Ajouter sans extraction
+                </Button>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
               Annuler
             </Button>
-            <Button onClick={handleCreateSubmit}>
-              Ajouter
+            <Button onClick={handleCreateSubmit} disabled={isExtracting}>
+              {isExtracting ? "Extraction..." : "Extraire et ajouter"}
             </Button>
           </DialogFooter>
         </DialogContent>

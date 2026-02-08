@@ -5,6 +5,7 @@ import { z } from "zod";
 const competitorSchema = z.object({
   name: z.string().min(1).optional(),
   location: z.string().optional(),
+  address: z.string().optional(),
   url: z
     .string()
     .optional()
@@ -47,6 +48,7 @@ export async function PUT(
     const data: Parameters<typeof prisma.scraperHotel.update>[0]["data"] = {};
     if (validated.name != null) data.name = validated.name;
     if (validated.location != null) data.location = validated.location;
+    if (validated.address != null) data.address = validated.address;
     if (validated.url != null) data.url = validated.url;
     if (validated.stars != null) data.stars = validated.stars;
     if (validated.isMonitored != null) data.isMonitored = validated.isMonitored;
@@ -60,6 +62,7 @@ export async function PUT(
       id: hotel.id,
       name: hotel.name,
       location: hotel.location ?? "",
+      address: hotel.address ?? "",
       price: 0,
       stars: hotel.stars ?? 0,
       photoUrl: hotel.photoUrl ?? undefined,

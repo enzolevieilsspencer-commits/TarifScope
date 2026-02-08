@@ -44,10 +44,12 @@ export default function AccountPage() {
     hotelUrl: "",
   });
 
-  // Hotel data (scraped)
+  // Hotel data (scraped ou chargé)
   const [hotelData, setHotelData] = useState<HotelData | null>(null);
   const [isLoadingHotel, setIsLoadingHotel] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractFailed, setExtractFailed] = useState(false);
 
   // Charger les données de l'hôtel et de l'utilisateur au montage
   useEffect(() => {
@@ -214,19 +216,90 @@ export default function AccountPage() {
                         <Globe className="h-4 w-4 text-muted-foreground" />
                         URL de mon hôtel (Booking.com)
                       </label>
-                      <Input 
-                        id="hotel-url" 
-                        placeholder="https://www.booking.com/hotel/..."
-                        value={profileData.hotelUrl}
-                        onChange={(e) => setProfileData({ ...profileData, hotelUrl: e.target.value })}
-                      />
+                      <div className="flex gap-2">
+                        <Input 
+                          id="hotel-url" 
+                          placeholder="https://www.booking.com/hotel/..."
+                          value={profileData.hotelUrl}
+                          onChange={(e) => {
+                            setProfileData({ ...profileData, hotelUrl: e.target.value });
+                            setExtractFailed(false);
+                          }}
+                          disabled={isExtracting}
+                          className="flex-1"
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={async () => {
+                            const url = (profileData.hotelUrl || "").trim();
+                            if (!url) {
+                              toast.error("Veuillez entrer l'URL Booking.com de votre hôtel");
+                              return;
+                            }
+                            if (!url.includes("booking.com")) {
+                              toast.error("Seules les URLs Booking.com sont supportées");
+                              return;
+                            }
+                            setIsExtracting(true);
+                            setExtractFailed(false);
+                            try {
+                              const res = await fetch("/api/competitors/extract-info", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ url }),
+                              });
+                              if (!res.ok) {
+                                const err = await res.json().catch(() => ({}));
+                                setExtractFailed(true);
+                                toast.error(err.error || "Extraction échouée (scraper indisponible ou timeout)");
+                                return;
+                              }
+                              const data = await res.json();
+                              setHotelData({
+                                id: hotelData?.id ?? "",
+                                name: (data.name ?? "Mon établissement").trim() || "Mon établissement",
+                                location: (data.location ?? "").trim() || null,
+                                address: (data.address ?? "").trim() || null,
+                                url,
+                                stars: typeof data.stars === "number" ? data.stars : null,
+                                photoUrl: (data.photoUrl && typeof data.photoUrl === "string" ? data.photoUrl : null) || null,
+                              });
+                              setExtractFailed(false);
+                              toast.success("Informations extraites avec succès");
+                            } catch (e) {
+                              setExtractFailed(true);
+                              toast.error("Erreur lors de l'extraction");
+                            } finally {
+                              setIsExtracting(false);
+                            }
+                          }}
+                          disabled={isExtracting}
+                        >
+                          {isExtracting ? "Extraction..." : "Extraire"}
+                        </Button>
+                      </div>
                       <p className="text-xs text-muted-foreground">
-                        Entrez l'URL Booking.com de votre hôtel et enregistrez pour afficher la carte à droite
+                        Collez l'URL de votre hôtel, cliquez sur « Extraire » pour récupérer nom, adresse et photo, puis « Enregistrer » pour sauvegarder en tant qu'hôtel client.
                       </p>
+                      {extractFailed && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400">
+                          Le scraper est indisponible. Vous pouvez quand même enregistrer avec un nom par défaut « Mon établissement » (modifiable plus tard).
+                        </p>
+                      )}
                     </div>
                     <div className="flex justify-end pt-2">
                       <Button 
                         onClick={async () => {
+                          const url = (profileData.hotelUrl || "").trim();
+                          if (!url) {
+                            toast.error("Veuillez entrer l'URL Booking.com de votre hôtel");
+                            return;
+                          }
+                          if (!url.includes("booking.com")) {
+                            toast.error("Seules les URLs Booking.com sont supportées");
+                            return;
+                          }
                           setIsSaving(true);
                           try {
                             const response = await fetch("/api/hotel", {
@@ -235,7 +308,12 @@ export default function AccountPage() {
                                 "Content-Type": "application/json",
                               },
                               body: JSON.stringify({
-                                url: profileData.hotelUrl || undefined,
+                                url,
+                                name: hotelData?.name?.trim() || "Mon établissement",
+                                location: hotelData?.location ?? undefined,
+                                address: hotelData?.address ?? undefined,
+                                stars: hotelData?.stars ?? undefined,
+                                photoUrl: hotelData?.photoUrl ?? undefined,
                               }),
                             });
 
@@ -246,12 +324,8 @@ export default function AccountPage() {
 
                             const updated = await response.json();
                             setHotelData(updated);
-                            
-                            if (updated.scraped) {
-                              toast.success("Hôtel enregistré et informations extraites avec succès !");
-                            } else {
-                              toast.success("Profil enregistré avec succès");
-                            }
+                            setProfileData((prev) => ({ ...prev, hotelUrl: updated.url || url }));
+                            toast.success("Hôtel enregistré avec succès (enregistré en tant que client)");
                           } catch (error) {
                             console.error("Erreur lors de l'enregistrement:", error);
                             toast.error(

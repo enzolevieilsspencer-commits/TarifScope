@@ -64,12 +64,14 @@ export async function POST(request: NextRequest) {
           const data = (await res.json()) as {
             name?: string;
             location?: string;
+            address?: string;
             stars?: number;
             photoUrl?: string;
           };
           return NextResponse.json({
             name: data.name ?? "Concurrent Booking",
             location: data.location ?? "",
+            address: data.address ?? "",
             source: "booking.com",
             stars: data.stars ?? 4,
             photoUrl: data.photoUrl ?? undefined,

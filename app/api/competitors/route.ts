@@ -16,10 +16,11 @@ const bookingUrlSchema = z
 const competitorSchema = z.object({
   name: z.string().min(1),
   location: z.string().optional(),
+  address: z.string().optional(),
   url: bookingUrlSchema,
   source: z.string().min(1).optional(),
   stars: z.number().min(0).max(5).optional(),
-  photoUrl: z.string().url().optional().or(z.literal("")),
+  photoUrl: z.string().optional(),
   isMonitored: z.boolean().optional(),
   tags: z.string().optional(),
 });
@@ -46,6 +47,7 @@ export async function GET(request: NextRequest) {
       id: h.id,
       name: h.name,
       location: h.location ?? "",
+      address: h.address ?? "",
       price: h.rateSnapshots[0]?.price ?? 0,
       stars: h.stars ?? 0,
       photoUrl: h.photoUrl ?? undefined,
@@ -100,9 +102,15 @@ export async function POST(request: NextRequest) {
         id,
         name: validated.name,
         location: validated.location ?? null,
+        address: validated.address ?? null,
         url: validated.url,
         stars: validated.stars ?? null,
-        photoUrl: validated.photoUrl && validated.photoUrl !== "" ? validated.photoUrl : null,
+        photoUrl:
+        validated.photoUrl && validated.photoUrl.trim() !== ""
+          ? validated.photoUrl.trim().startsWith("//")
+            ? `https:${validated.photoUrl.trim()}`
+            : validated.photoUrl.trim()
+          : null,
         isClient: false,
         isMonitored: validated.isMonitored ?? true,
       },
@@ -112,6 +120,7 @@ export async function POST(request: NextRequest) {
       id: hotel.id,
       name: hotel.name,
       location: hotel.location ?? "",
+      address: hotel.address ?? "",
       price: 0,
       stars: hotel.stars ?? 0,
       photoUrl: hotel.photoUrl ?? undefined,
