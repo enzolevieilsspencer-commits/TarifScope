@@ -30,8 +30,15 @@ import {
   Eye,
   ExternalLink,
   Calendar,
+  Maximize2,
 } from "lucide-react";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { Sidebar } from "@/components/sidebar";
 import { useSidebar } from "@/components/sidebar-context";
 import { toast } from "sonner";
@@ -68,14 +75,14 @@ const initialPriceEvolutionData = [
   { date: "14 janv.", monHotel: 185, moyenneConcurrents: 155 },
 ];
 
-const dashboardColors = {
-  monHotel: { color: "#3b82f6", name: "Mon hôtel" },
-  moyenneConcurrents: { color: "#22c55e", name: "Moyenne concurrents" },
+const dashboardColors: Record<string, { color: string; name: string }> = {
+  monHotelY: { color: "#3b82f6", name: "Mon hôtel" },
+  moyenneConcurrentsY: { color: "#22c55e", name: "Moyenne concurrents" },
 };
 
 const DashboardTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
-    const order = ['monHotel', 'moyenneConcurrents'];
+    const order = ['monHotelY', 'moyenneConcurrentsY'];
     const sortedPayload = order.map(key => 
       payload.find((entry: any) => entry.dataKey === key)
     ).filter(Boolean);
@@ -85,10 +92,14 @@ const DashboardTooltip = ({ active, payload, label }: any) => {
         <div className="font-bold text-gray-900 mb-3">{label}</div>
         <div className="space-y-2">
           {sortedPayload.map((entry: any, index: number) => {
-            const hotelKey = entry.dataKey as keyof typeof dashboardColors;
-            const hotelInfo = dashboardColors[hotelKey];
+            const hotelInfo = dashboardColors[entry.dataKey];
             if (!hotelInfo) return null;
-            
+            const isIndisponible = entry.dataKey === 'monHotelY'
+              ? (entry.payload?.monHotelIndisponible === true)
+              : (entry.payload?.moyenneConcurrentsIndisponible === true);
+            const displayText = isIndisponible
+              ? "Indisponible"
+              : (entry.value != null && entry.value !== "" && Number(entry.value) > 0 ? `${Number(entry.value)} €` : "Indisponible");
             return (
               <div key={index} className="flex items-center gap-2">
                 <div 
@@ -96,9 +107,7 @@ const DashboardTooltip = ({ active, payload, label }: any) => {
                   style={{ backgroundColor: hotelInfo.color }}
                 />
                 <span className="text-sm text-gray-700">
-                  {hotelInfo.name}: <span className="font-bold text-gray-900">
-                    {entry.value != null && entry.value !== "" ? `${Number(entry.value)} €` : "—"}
-                  </span>
+                  {hotelInfo.name}: <span className="font-bold text-gray-900">{displayText}</span>
                 </span>
               </div>
             );
@@ -132,7 +141,7 @@ const initialHotels: Hotel[] = [
   { id: 5, name: "Horizon Palace", stars: 4, minOTA: 145, booking: 145, expedia: 151, setConcurrent: 148, delta: 2, lastUpdate: "5 h", isPositive: false },
 ];
 
-const ITEMS_PER_PAGE = 5;
+const ITEMS_PER_PAGE = 10;
 
 export default function Dashboard() {
   const { isOpen } = useSidebar();
@@ -156,6 +165,9 @@ export default function Dashboard() {
   } | null>(null);
   const [loadingCardDate, setLoadingCardDate] = useState(false);
   const [availableDatesForCard, setAvailableDatesForCard] = useState<string[]>([]);
+  const [isChartModalOpen, setIsChartModalOpen] = useState(false);
+  const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
 
   // KPIs depuis l'API
   const [kpis, setKpis] = useState({
@@ -392,22 +404,75 @@ export default function Dashboard() {
     return filteredHotels.slice(start, end);
   }, [filteredHotels, currentPage]);
 
-  // Filter price data based on period (données issues des prix scrapés /api/dashboard/data)
+  // Filtre : toujours afficher les X prochains jours (une entrée par date). Pas de prix = null → courbe continue + "Indisponible" dans le tooltip
   const filteredPriceEvolutionData = useMemo(() => {
-    if (periodFilter === "7j") {
-      return priceEvolutionData.slice(-7);
-    } else if (periodFilter === "90j") {
-      return priceEvolutionData;
+    const count = periodFilter === "7j" ? 7 : periodFilter === "14j" ? 14 : 30;
+    const now = new Date();
+    const utcY = now.getUTCFullYear(), utcM = now.getUTCMonth(), utcD = now.getUTCDate();
+    const byDateISO: Record<string, { monHotel?: number; moyenneConcurrents?: number }> = {};
+    for (const d of priceEvolutionData as { dateISO?: string; monHotel?: number; moyenneConcurrents?: number }[]) {
+      const key = d.dateISO || "";
+      if (!key) continue;
+      byDateISO[key] = {
+        monHotel: d.monHotel != null && d.monHotel > 0 ? d.monHotel : undefined,
+        moyenneConcurrents: d.moyenneConcurrents != null && d.moyenneConcurrents > 0 ? d.moyenneConcurrents : undefined,
+      };
     }
-    return priceEvolutionData.slice(-30);
+    const result: {
+      date: string;
+      dateISO: string;
+      monHotel: number | null;
+      moyenneConcurrents: number | null;
+      monHotelY: number;
+      moyenneConcurrentsY: number;
+      monHotelIndisponible: boolean;
+      moyenneConcurrentsIndisponible: boolean;
+    }[] = [];
+    for (let i = 0; i < count; i++) {
+      const d = new Date(Date.UTC(utcY, utcM, utcD + i));
+      const dateISO = d.toISOString().split("T")[0];
+      const row = byDateISO[dateISO];
+      const monHotel = row?.monHotel != null ? row.monHotel : null;
+      const moyenneConcurrents = row?.moyenneConcurrents != null ? row.moyenneConcurrents : null;
+      // Pour ne pas couper la courbe : si pas de prix, on continue au niveau de l'autre série
+      const monHotelY = monHotel ?? moyenneConcurrents ?? 0;
+      const moyenneConcurrentsY = moyenneConcurrents ?? monHotel ?? 0;
+      result.push({
+        date: d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" }),
+        dateISO,
+        monHotel: monHotel ?? null,
+        moyenneConcurrents: moyenneConcurrents ?? null,
+        monHotelY,
+        moyenneConcurrentsY,
+        monHotelIndisponible: monHotel == null,
+        moyenneConcurrentsIndisponible: moyenneConcurrents == null,
+      });
+    }
+    return result;
   }, [priceEvolutionData, periodFilter]);
+
+  // Grille du mois pour le calendrier modal (lundi = premier jour)
+  const calendarGrid = useMemo(() => {
+    const y = calendarMonth.getFullYear();
+    const m = calendarMonth.getMonth();
+    const first = new Date(y, m, 1);
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const firstWeekday = (first.getDay() + 6) % 7; // 0 = lundi
+    const leading = firstWeekday;
+    const cells: (number | null)[] = [];
+    for (let i = 0; i < leading; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+    const total = 42;
+    while (cells.length < total) cells.push(null);
+    return { cells, year: y, month: m, daysInMonth };
+  }, [calendarMonth]);
 
   // Domaine Y dynamique pour le graphique (éviter de couper les prix scrapés)
   const chartDomainY = useMemo(() => {
     if (filteredPriceEvolutionData.length === 0) return [0, 200];
     const values = filteredPriceEvolutionData.flatMap((d) => [
-      d.monHotel ?? 0,
-      d.moyenneConcurrents ?? 0,
+      d.monHotelY,
+      d.moyenneConcurrentsY,
     ]).filter((v) => typeof v === "number" && v > 0);
     if (values.length === 0) return [0, 200];
     const min = Math.min(...values);
@@ -421,11 +486,11 @@ export default function Dashboard() {
     const headers = ["Hôtel", "Min OTA", "Booking", "Expedia", "Set concurrent", "Delta", "Dernière maj"];
     const rows = hotels.map(hotel => [
       hotel.name,
-      hotel.minOTA.toString(),
-      hotel.booking.toString(),
-      hotel.expedia.toString(),
-      hotel.setConcurrent.toString(),
-      hotel.delta.toString(),
+      hotel.minOTA > 0 ? hotel.minOTA.toString() : "Indisponible",
+      hotel.booking > 0 ? hotel.booking.toString() : "Indisponible",
+      hotel.expedia > 0 ? hotel.expedia.toString() : "Indisponible",
+      hotel.setConcurrent > 0 ? hotel.setConcurrent.toString() : "Indisponible",
+      hotel.setConcurrent > 0 ? hotel.delta.toString() : "—",
       hotel.lastUpdate
     ]);
     
@@ -463,6 +528,14 @@ export default function Dashboard() {
   // Stats depuis l'API (déjà dans le state kpis)
   const { monitoredHotels, activeAlerts, avgPrice, gap, minPrice } = kpis;
 
+  // Prix pour le jour J (aujourd'hui) — premier point du graphique
+  const prixMonHotelJourJ = filteredPriceEvolutionData[0]?.monHotel != null && filteredPriceEvolutionData[0].monHotel > 0
+    ? filteredPriceEvolutionData[0].monHotel
+    : null;
+  const prixMoyenneConcurrentsJourJ = filteredPriceEvolutionData[0]?.moyenneConcurrents != null && filteredPriceEvolutionData[0].moyenneConcurrents > 0
+    ? filteredPriceEvolutionData[0].moyenneConcurrents
+    : null;
+
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
@@ -470,69 +543,20 @@ export default function Dashboard() {
       <main className={`flex-1 flex flex-col transition-all duration-300 ${isOpen ? "ml-56" : "ml-20"}`}>
         {/* Header */}
         <header className="border-b bg-card px-6 py-4">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-              <p className="text-sm text-muted-foreground mt-1">Vue d'ensemble de votre veille tarifaire</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button 
-                variant="outline" 
-                onClick={handleScan}
-                disabled={isScanning}
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${isScanning ? 'animate-spin' : ''}`} />
-                {isScanning ? "Scan en cours..." : "Lancer un scan"}
-              </Button>
-              <Button variant="outline" onClick={handleExportCSV}>
-                <Download className="h-4 w-4 mr-2" />
-                Exporter CSV
-              </Button>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <Select value={periodFilter} onValueChange={setPeriodFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="30 derniers jours" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="7j">7 derniers jours</SelectItem>
-                <SelectItem value="30j">30 derniers jours</SelectItem>
-                <SelectItem value="90j">90 derniers jours</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[120px]">
-                <SelectValue placeholder="Tous" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous</SelectItem>
-                <SelectItem value="monitored">Surveillés</SelectItem>
-                <SelectItem value="not-monitored">Non surveillés</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={seasonFilter} onValueChange={setSeasonFilter}>
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Toutes saisons" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all-season">Toutes saisons</SelectItem>
-                <SelectItem value="summer">Été</SelectItem>
-                <SelectItem value="winter">Hiver</SelectItem>
-              </SelectContent>
-            </Select>
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input 
-                type="text" 
-                placeholder="Rechercher un hôtel..." 
-                className="pl-10"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setCurrentPage(1);
-                }}
-              />
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+            <p className="text-sm text-muted-foreground mt-1">Vue d'ensemble de votre veille tarifaire</p>
+            <div className="mt-3">
+              <Select value={periodFilter} onValueChange={setPeriodFilter}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="30 prochains jours" />
+                </SelectTrigger>
+                <SelectContent side="bottom" avoidCollisions={false} position="popper">
+                  <SelectItem value="7j">7 prochains jours</SelectItem>
+                  <SelectItem value="14j">14 prochains jours</SelectItem>
+                  <SelectItem value="30j">30 prochains jours</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </header>
@@ -576,41 +600,19 @@ export default function Dashboard() {
               <div className="absolute top-0 left-0 bg-primary/15 text-primary text-xs font-semibold uppercase tracking-wide px-3 py-2 rounded-br-lg">
                 {cardPricesByDate?.dateLabel ?? new Date(cardSelectedDate).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
               </div>
-              <div className="absolute top-0 right-0 p-2">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-primary hover:bg-primary/10" title="Choisir une date">
-                      <Calendar className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="p-3 w-64">
-                    <label className="text-xs font-medium text-muted-foreground block mb-2">Choisir le jour</label>
-                    <Input
-                      type="date"
-                      value={cardSelectedDate}
-                      onChange={(e) => setCardSelectedDate(e.target.value)}
-                      className="w-full mb-3"
-                    />
-                    {availableDatesForCard.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">Prix disponibles pour :</p>
-                        <div className="flex flex-wrap gap-1">
-                          {availableDatesForCard.map((d) => (
-                            <Button
-                              key={d}
-                              variant={cardSelectedDate === d ? "secondary" : "outline"}
-                              size="sm"
-                              className="text-xs h-7"
-                              onClick={() => setCardSelectedDate(d)}
-                            >
-                              {new Date(d + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+              <div className="absolute top-0 right-0 pt-5 pr-3 flex items-center justify-center">
+                <button
+                  type="button"
+                  className="h-[30px] w-[30px] flex items-center justify-center text-primary hover:bg-primary/10 rounded-md transition-colors"
+                  title="Ouvrir le calendrier"
+                  aria-label="Ouvrir le calendrier"
+                  onClick={() => {
+                  setCalendarMonth(new Date(cardSelectedDate + "T12:00:00"));
+                  setIsCalendarModalOpen(true);
+                }}
+                >
+                  <Calendar className="h-[30px] w-[30px] flex-shrink-0" />
+                </button>
               </div>
               <CardContent className="pt-12 pb-3 px-3">
                 {loadingCardDate ? (
@@ -650,11 +652,88 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
+            {/* Modal calendrier : grand calendrier + prix par jour */}
+            <Dialog open={isCalendarModalOpen} onOpenChange={setIsCalendarModalOpen}>
+              <DialogContent className="w-[98vw] max-w-none max-h-[90vh] flex flex-col overflow-hidden">
+                <DialogHeader>
+                  <DialogTitle>Calendrier des tarifs</DialogTitle>
+                </DialogHeader>
+                <div className="flex flex-col gap-4 overflow-y-auto">
+                  <div className="flex items-center justify-between">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setCalendarMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1))}
+                      aria-label="Mois précédent"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-lg font-semibold capitalize">
+                      {calendarMonth.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setCalendarMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1))}
+                      aria-label="Mois suivant"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1 text-center">
+                    {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d) => (
+                      <div key={d} className="text-xs font-medium text-muted-foreground py-1">
+                        {d}
+                      </div>
+                    ))}
+                    {calendarGrid.cells.map((day, i) => {
+                      if (day === null) return <div key={i} className="p-2 min-h-[44px]" />;
+                      const dateStr = `${calendarGrid.year}-${String(calendarGrid.month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                      const isSelected = cardSelectedDate === dateStr;
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => {
+                            setCardSelectedDate(dateStr);
+                          }}
+                          className={`p-2 min-h-[44px] rounded-md text-sm font-medium transition-colors hover:bg-primary/10 ${isSelected ? "bg-primary text-primary-foreground hover:bg-primary/90" : "bg-muted/50 hover:bg-muted"}`}
+                        >
+                          {day}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="border-t pt-4 mt-2">
+                    <h4 className="text-sm font-semibold mb-2">
+                      Prix pour le {cardPricesByDate?.dateLabel ?? new Date(cardSelectedDate).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                    </h4>
+                    {loadingCardDate ? (
+                      <p className="text-sm text-muted-foreground py-4">Chargement...</p>
+                    ) : cardPricesByDate && cardPricesByDate.competitors.length > 0 ? (
+                      <ul className="space-y-2 max-h-[200px] overflow-y-auto">
+                        {cardPricesByDate.competitors.map((c) => (
+                          <li key={c.name} className="flex items-center justify-between text-sm py-1 border-b border-border/50 last:border-0">
+                            <span className={c.isMyHotel ? "font-semibold text-primary" : ""}>{c.name}</span>
+                            <span className="font-semibold text-primary">{c.price > 0 ? `${Math.round(c.price)} €` : "—"}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-muted-foreground py-2">
+                        Aucun prix pour cette date. Lancez un scan pour enregistrer des prix.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <CardDescription className="text-xs font-semibold uppercase tracking-wide">ÉCART VS CONCURRENTS</CardDescription>
-                  <span className="h-8 w-8 text-primary flex-shrink-0 flex items-center justify-center text-2xl font-bold">€</span>
+                  <span className="h-8 w-8 text-primary flex-shrink-0 flex items-center justify-center text-3xl font-medium leading-none">€</span>
                 </div>
               </CardHeader>
               <CardContent>
@@ -670,9 +749,21 @@ export default function Dashboard() {
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Chart */}
             <Card className="lg:col-span-2">
-              <CardHeader>
+              <CardHeader className="relative">
+                <div className="absolute top-4 right-4">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 text-muted-foreground hover:text-foreground"
+                    onClick={() => setIsChartModalOpen(true)}
+                    title="Plein écran"
+                    disabled={filteredPriceEvolutionData.length === 0}
+                  >
+                    <Maximize2 className="h-5 w-5" />
+                  </Button>
+                </div>
                 <CardTitle>Évolution des tarifs</CardTitle>
-                <p className="text-sm text-muted-foreground font-normal">
+                <p className="text-sm text-muted-foreground font-normal pr-10">
                   Données issues des scans (mon hôtel vs moyenne des concurrents).
                 </p>
               </CardHeader>
@@ -696,7 +787,6 @@ export default function Dashboard() {
                         <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis 
                       dataKey="date" 
                       stroke="#6b7280" 
@@ -711,29 +801,71 @@ export default function Dashboard() {
                     <Tooltip content={<DashboardTooltip />} />
                     <Area 
                       type="monotone" 
-                      dataKey="monHotel" 
+                      dataKey="monHotelY" 
                       stroke="#3b82f6" 
                       strokeWidth={2}
                       fillOpacity={1}
                       fill="url(#colorMonHotel)"
                       name="Mon hôtel"
-                      connectNulls
                     />
                     <Area 
                       type="monotone" 
-                      dataKey="moyenneConcurrents" 
+                      dataKey="moyenneConcurrentsY" 
                       stroke="#22c55e" 
                       strokeWidth={2}
                       fillOpacity={1}
                       fill="url(#colorMoyenneConcurrents)"
                       name="Moyenne concurrents"
-                      connectNulls
                     />
                   </AreaChart>
                 </ResponsiveContainer>
                 )}
               </CardContent>
             </Card>
+
+            {/* Modal plein écran du graphique dashboard */}
+            <Dialog open={isChartModalOpen} onOpenChange={setIsChartModalOpen}>
+              <DialogContent fullScreen className="flex flex-col p-4">
+                <DialogHeader className="flex-shrink-0">
+                  <DialogTitle>Évolution des tarifs — plein écran</DialogTitle>
+                  <div className="mt-3">
+                    <Select value={periodFilter} onValueChange={setPeriodFilter}>
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="30 prochains jours" />
+                      </SelectTrigger>
+                      <SelectContent side="bottom" avoidCollisions={false} position="popper">
+                        <SelectItem value="7j">7 prochains jours</SelectItem>
+                        <SelectItem value="14j">14 prochains jours</SelectItem>
+                        <SelectItem value="30j">30 prochains jours</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </DialogHeader>
+                <div className="flex-1 min-h-0 pt-2">
+                  {filteredPriceEvolutionData.length > 0 && (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={filteredPriceEvolutionData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="modalColorMonHotel" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                          </linearGradient>
+                          <linearGradient id="modalColorMoyenneConcurrents" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <XAxis dataKey="date" stroke="#6b7280" tick={{ fontSize: 12, fill: "#6b7280" }} />
+                        <YAxis stroke="#6b7280" domain={chartDomainY as [number, number]} tick={{ fontSize: 12, fill: "#6b7280" }} />
+                        <Tooltip content={<DashboardTooltip />} />
+                        <Area type="monotone" dataKey="monHotelY" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#modalColorMonHotel)" name="Mon hôtel" />
+                        <Area type="monotone" dataKey="moyenneConcurrentsY" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#modalColorMoyenneConcurrents)" name="Moyenne concurrents" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
 
             {/* Quick Overview */}
             <Card>
@@ -742,16 +874,22 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="bg-blue-500/20 backdrop-blur-md rounded-lg p-4 border border-blue-400/40 shadow-lg">
-                  <div className="text-xs text-black mb-1 font-medium">Tarif moyen</div>
-                  <div className="text-3xl font-bold text-black">{avgPrice > 0 ? `${avgPrice}€` : 'N/A'}</div>
+                  <div className="text-xs text-black mb-1 font-medium">Prix de mon hôtel</div>
+                  <div className="text-3xl font-bold text-black">
+                    {prixMonHotelJourJ != null ? `${Math.round(prixMonHotelJourJ)}€` : 'N/A'}
+                  </div>
                 </div>
                 <div className="bg-green-500/20 backdrop-blur-md rounded-lg p-4 border border-green-400/40 shadow-lg">
-                  <div className="text-xs text-black mb-1 font-medium">Tarif le plus bas</div>
-                  <div className="text-3xl font-bold text-black">{minPrice > 0 ? `${minPrice}€` : 'N/A'}</div>
+                  <div className="text-xs text-black mb-1 font-medium">Prix moyen concurrents</div>
+                  <div className="text-3xl font-bold text-black">{prixMoyenneConcurrentsJourJ != null ? `${Math.round(prixMoyenneConcurrentsJourJ)}€` : 'N/A'}</div>
                 </div>
                 <div className="bg-red-500/20 backdrop-blur-md rounded-lg p-4 border border-red-400/40 shadow-lg">
-                  <div className="text-xs text-black mb-1 font-medium">Écart moyen</div>
-                  <div className="text-3xl font-bold text-black">{gap > 0 ? '+' : ''}{gap}€</div>
+                  <div className="text-xs text-black mb-1 font-medium">Écart</div>
+                  <div className="text-3xl font-bold text-black">
+                    {prixMonHotelJourJ != null && prixMoyenneConcurrentsJourJ != null
+                      ? (prixMonHotelJourJ - prixMoyenneConcurrentsJourJ > 0 ? '+' : '') + Math.round(prixMonHotelJourJ - prixMoyenneConcurrentsJourJ) + '€'
+                      : 'N/A'}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -825,19 +963,23 @@ export default function Dashboard() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right text-base py-4">{hotel.minOTA}€</TableCell>
-                      <TableCell className="text-right text-base py-4">{hotel.booking}€</TableCell>
-                      <TableCell className="text-right text-base py-4">{hotel.expedia}€</TableCell>
-                      <TableCell className="text-right text-base py-4">{hotel.setConcurrent}€</TableCell>
+                      <TableCell className="text-right text-base py-4">{hotel.minOTA > 0 ? `${hotel.minOTA}€` : <span className="text-muted-foreground">Indisponible</span>}</TableCell>
+                      <TableCell className="text-right text-base py-4">{hotel.booking > 0 ? `${hotel.booking}€` : <span className="text-muted-foreground">Indisponible</span>}</TableCell>
+                      <TableCell className="text-right text-base py-4">{hotel.expedia > 0 ? `${hotel.expedia}€` : <span className="text-muted-foreground">Indisponible</span>}</TableCell>
+                      <TableCell className="text-right text-base py-4">{hotel.setConcurrent > 0 ? `${hotel.setConcurrent}€` : <span className="text-muted-foreground">Indisponible</span>}</TableCell>
                       <TableCell className="text-right py-4">
-                        <Badge 
-                          className={hotel.isPositive 
-                            ? "bg-green-500/10 text-green-600 hover:bg-green-500/20 text-sm px-2 py-1" 
-                            : "bg-red-500/10 text-red-600 hover:bg-red-500/20 text-sm px-2 py-1"
-                          }
-                        >
-                          {hotel.delta > 0 ? '+' : ''}{hotel.delta}€
-                        </Badge>
+                        {hotel.setConcurrent > 0 ? (
+                          <Badge 
+                            className={hotel.isPositive 
+                              ? "bg-green-500/10 text-green-600 hover:bg-green-500/20 text-sm px-2 py-1" 
+                              : "bg-red-500/10 text-red-600 hover:bg-red-500/20 text-sm px-2 py-1"
+                            }
+                          >
+                            {hotel.delta > 0 ? '+' : ''}{hotel.delta}€
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right text-base text-muted-foreground py-4">{hotel.lastUpdate}</TableCell>
                       <TableCell className="py-4">
@@ -896,6 +1038,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
           </>
+
         </section>
       </main>
     </div>

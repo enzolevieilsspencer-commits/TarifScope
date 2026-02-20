@@ -11,10 +11,9 @@ import {
   TrendingDown,
   Download,
   Calendar,
-  LineChart as LineChartIcon
 } from "lucide-react";
 import Link from "next/link";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { Sidebar } from "@/components/sidebar";
 import { useSidebar } from "@/components/sidebar-context";
 import { toast } from "sonner";
@@ -261,7 +260,6 @@ export default function HistoryPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="line">Ligne</SelectItem>
-                <SelectItem value="bar">Barre</SelectItem>
                 <SelectItem value="area">Aire</SelectItem>
               </SelectContent>
             </Select>
@@ -271,6 +269,9 @@ export default function HistoryPage() {
           <Card>
             <CardHeader>
               <CardTitle>Évolution des tarifs</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Prix de la nuit par date (jusqu&apos;à aujourd&apos;hui). Chaque point = une date de séjour, le graphique se construit dans le temps.
+              </p>
             </CardHeader>
             <CardContent>
               {isLoading ? (
@@ -283,41 +284,68 @@ export default function HistoryPage() {
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height={450}>
-                  <AreaChart data={priceEvolutionData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                    <defs>
-                      {competitorMapping.map((comp: any) => (
-                        <linearGradient key={`gradient-${comp.id}`} id={`color-${comp.id}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={comp.color} stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor={comp.color} stopOpacity={0}/>
-                        </linearGradient>
-                      ))}
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis 
-                      dataKey="date" 
-                      stroke="#6b7280" 
-                      tick={{ fontSize: 12, fill: "#6b7280" }}
-                    />
-                    <YAxis 
-                      stroke="#6b7280" 
-                      tick={{ fontSize: 12, fill: "#6b7280" }}
-                      domain={chartDomainY}
-                    />
-                    <Tooltip content={<CustomTooltip competitorMapping={competitorMapping} />} />
-                    {competitorMapping.map((comp: any) => (
-                      <Area 
-                        key={comp.id}
-                        type="monotone" 
-                        dataKey={comp.name} 
-                        stroke={comp.color} 
-                        strokeWidth={2}
-                        fillOpacity={1}
-                        fill={`url(#color-${comp.id})`}
-                        name={comp.name}
-                        connectNulls
+                  {chartType === "line" ? (
+                    <LineChart data={priceEvolutionData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                      <XAxis 
+                        dataKey="date" 
+                        stroke="#6b7280" 
+                        tick={{ fontSize: 12, fill: "#6b7280" }}
                       />
-                    ))}
-                  </AreaChart>
+                      <YAxis 
+                        stroke="#6b7280" 
+                        tick={{ fontSize: 12, fill: "#6b7280" }}
+                        domain={chartDomainY}
+                      />
+                      <Tooltip content={<CustomTooltip competitorMapping={competitorMapping} />} />
+                      {competitorMapping.map((comp: any) => (
+                        <Line
+                          key={comp.id}
+                          type="monotone"
+                          dataKey={comp.name}
+                          stroke={comp.color}
+                          strokeWidth={2}
+                          dot={false}
+                          name={comp.name}
+                          connectNulls
+                        />
+                      ))}
+                    </LineChart>
+                  ) : (
+                    <AreaChart data={priceEvolutionData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                      <defs>
+                        {competitorMapping.map((comp: any) => (
+                          <linearGradient key={`gradient-${comp.id}`} id={`color-${comp.id}`} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={comp.color} stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor={comp.color} stopOpacity={0}/>
+                          </linearGradient>
+                        ))}
+                      </defs>
+                      <XAxis 
+                        dataKey="date" 
+                        stroke="#6b7280" 
+                        tick={{ fontSize: 12, fill: "#6b7280" }}
+                      />
+                      <YAxis 
+                        stroke="#6b7280" 
+                        tick={{ fontSize: 12, fill: "#6b7280" }}
+                        domain={chartDomainY}
+                      />
+                      <Tooltip content={<CustomTooltip competitorMapping={competitorMapping} />} />
+                      {competitorMapping.map((comp: any) => (
+                        <Area 
+                          key={comp.id}
+                          type="monotone" 
+                          dataKey={comp.name} 
+                          stroke={comp.color} 
+                          strokeWidth={2}
+                          fillOpacity={1}
+                          fill={`url(#color-${comp.id})`}
+                          name={comp.name}
+                          connectNulls
+                        />
+                      ))}
+                    </AreaChart>
+                  )}
                 </ResponsiveContainer>
               )}
             </CardContent>

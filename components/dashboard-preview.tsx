@@ -23,7 +23,7 @@ import {
   ChevronLeft,
   LogOut
 } from "lucide-react";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 const priceEvolutionData = [
   { date: "17 déc.", monHotel: 140, moyenneConcurrents: 125 },
@@ -333,7 +333,6 @@ export function DashboardPreview() {
                     <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis 
                   dataKey="date" 
                   stroke="#6b7280" 

@@ -26,7 +26,8 @@ import {
   ExternalLink,
   Trash2,
   Edit,
-  Globe
+  Globe,
+  RefreshCw,
 } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
 import { useSidebar } from "@/components/sidebar-context";
@@ -63,6 +64,7 @@ export default function CompetitorsPage() {
   const { isOpen } = useSidebar();
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isScanning, setIsScanning] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all-categories");
@@ -121,6 +123,38 @@ export default function CompetitorsPage() {
 
     fetchCompetitors();
   }, []);
+
+  // Lancer un scan manuel (même endpoint que sur le dashboard)
+  const handleScan = async () => {
+    setIsScanning(true);
+    toast.info("Lancement du scan des prix en cours...");
+
+    try {
+      const response = await fetch("/api/scans/run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Erreur lors du scan");
+      }
+
+      const result = await response.json();
+      toast.success(
+        `Scan terminé ! ${result.snapshotsCount ?? result.snapshotsCreated ?? 0} snapshot(s) créé(s)`
+      );
+    } catch (error) {
+      console.error("Erreur lors du scan:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Erreur lors du scan"
+      );
+    } finally {
+      setIsScanning(false);
+    }
+  };
 
   // Filter competitors (exclude my hotel)
   const filteredCompetitors = competitors.filter((competitor) => {
@@ -561,10 +595,20 @@ export default function CompetitorsPage() {
               <h1 className="text-2xl font-semibold text-foreground">Concurrents</h1>
               <p className="text-sm text-muted-foreground mt-1">Gérez votre set de concurrents surveillés</p>
             </div>
-            <Button onClick={handleCreate}>
-              <Plus className="h-4 w-4 mr-2" />
-              Ajouter un concurrent
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="outline" 
+                onClick={handleScan}
+                disabled={isScanning}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isScanning ? "animate-spin" : ""}`} />
+                {isScanning ? "Scan en cours..." : "Lancer un scan"}
+              </Button>
+              <Button onClick={handleCreate}>
+                <Plus className="h-4 w-4 mr-2" />
+                Ajouter un concurrent
+              </Button>
+            </div>
           </div>
         </header>
 
@@ -716,12 +760,14 @@ export default function CompetitorsPage() {
                     </div>
 
                     {/* Current Price */}
-                    {competitor.price > 0 && (
-                      <div className="text-center mb-4">
-                        <p className="text-sm text-muted-foreground mb-1">Tarif actuel</p>
+                    <div className="text-center mb-4">
+                      <p className="text-sm text-muted-foreground mb-1">Tarif actuel</p>
+                      {competitor.price > 0 ? (
                         <p className="text-2xl font-bold">{competitor.price}€</p>
-                      </div>
-                    )}
+                      ) : (
+                        <p className="text-muted-foreground font-medium">Indisponible</p>
+                      )}
+                    </div>
 
                     {/* Tags */}
                     {competitor.tags && (

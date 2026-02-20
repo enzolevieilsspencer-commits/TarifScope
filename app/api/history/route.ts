@@ -28,6 +28,8 @@ export async function GET(request: NextRequest) {
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
+    const todayISO = new Date().toISOString().split("T")[0];
+
     const byStayDateAndHotel: Record<string, Record<string, number>> = {};
     for (const hotel of scraperHotels) {
       for (const s of hotel.rateSnapshots) {
@@ -35,6 +37,7 @@ export async function GET(request: NextRequest) {
         const dateKey = s.dateCheckin instanceof Date
           ? s.dateCheckin.toISOString().split("T")[0]
           : String(s.dateCheckin).slice(0, 10);
+        if (dateKey > todayISO) continue;
         const price = s.price ?? 0;
         if (price <= 0) continue;
         if (!byStayDateAndHotel[dateKey]) byStayDateAndHotel[dateKey] = {};
