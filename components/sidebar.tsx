@@ -107,18 +107,6 @@ export function Sidebar() {
             {isOpen && <span>Alertes</span>}
           </Link>
           <Link
-            href="/app/settings"
-            className={`flex items-center ${isOpen ? "gap-3 px-3" : "justify-center px-2"} py-3 rounded-lg text-sm font-medium transition-colors ${
-              isActive("/app/settings")
-                ? "text-primary bg-primary/10 hover:bg-primary/15"
-                : "text-foreground hover:bg-accent hover:text-foreground"
-            }`}
-            title={!isOpen ? "Paramètres" : undefined}
-          >
-            <Settings className="h-5 w-5 flex-shrink-0" />
-            {isOpen && <span>Paramètres</span>}
-          </Link>
-          <Link
             href="/app/account"
             className={`flex items-center ${isOpen ? "gap-3 px-3" : "justify-center px-2"} py-3 rounded-lg text-sm font-medium transition-colors ${
               isActive("/app/account")
